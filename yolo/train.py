@@ -2,16 +2,16 @@ import os
 import argparse
 from ultralytics import YOLO
 
-def train_yolo(data_yaml='dataset.yaml', epochs=100, imgsz=640, batch=16, device='0'):
+def train_yolo(data_yaml='dataset.yaml', model_name='yolov8x.pt', epochs=300, imgsz=640, batch=128, device='0,1', workers=16):
     """
     Train a YOLO model on the DVT dataset.
-    We start with a pre-trained YOLOv8/11 weights to speed up convergence.
+    Optimized for high-performance servers (e.g., 2x A100 40GB).
     """
     print(f"Starting YOLO training using config: {data_yaml}")
     
     # Load a model
-    # We use YOLOv8 nano or small as a starting point. Can be upgraded to 'yolov8m.pt' for better accuracy.
-    model = YOLO('yolov8s.pt')  # load a pretrained model (recommended for training)
+    # Upgrading to YOLOv8x (or YOLOv11x) to fully utilize the A100 compute capability
+    model = YOLO(model_name)  # load a pretrained model
 
     # Train the model
     results = model.train(
@@ -20,10 +20,12 @@ def train_yolo(data_yaml='dataset.yaml', epochs=100, imgsz=640, batch=16, device
         imgsz=imgsz,
         batch=batch,
         device=device,
+        workers=workers,
+        cache=True,    # Cache data into RAM for maximum data loading speed
         project='EchoDVT_YOLO',
         name='dvt_detection',
         exist_ok=True, # Overwrite previous if exists
-        patience=20    # Early stopping
+        patience=50    # Early stopping (increased patience)
     )
     
     print("Training customized YOLO model completed.")
@@ -32,9 +34,12 @@ def train_yolo(data_yaml='dataset.yaml', epochs=100, imgsz=640, batch=16, device
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Train YOLO for EchoDVT")
     parser.add_argument('--data', type=str, default='dataset.yaml', help='Path to dataset.yaml')
-    parser.add_argument('--epochs', type=int, default=100, help='Number of epochs')
-    parser.add_argument('--batch', type=int, default=16, help='Batch size')
-    parser.add_argument('--imgsz', type=int, default=640, help='Image resolution')
+    parser.add_argument('--model', type=str, default='yolov8x.pt', help='Pretrained model weights (e.g., yolov8x.pt or yolo11x.pt)')
+    parser.add_argument('--epochs', type=int, default=300, help='Number of epochs')
+    parser.add_argument('--batch', type=int, default=128, help='Batch size (use e.g. 128 for 2xA100, or -1 for AutoBatch)')
+    parser.add_argument('--imgsz', type=int, default=640, help='Image resolution (can increase to 1024 for A100)')
+    parser.add_argument('--device', type=str, default='0,1', help='GPU devices, e.g., "0,1" for two GPUs')
+    parser.add_argument('--workers', type=int, default=16, help='Number of CPU workers for dataloading')
     
     args = parser.parse_args()
     
@@ -42,4 +47,12 @@ if __name__ == '__main__':
     script_dir = os.path.dirname(os.path.abspath(__file__))
     os.chdir(script_dir)
     
-    train_yolo(data_yaml=args.data, epochs=args.epochs, batch=args.batch, imgsz=args.imgsz)
+    train_yolo(
+        data_yaml=args.data, 
+        model_name=args.model,
+        epochs=args.epochs, 
+        batch=args.batch, 
+        imgsz=args.imgsz,
+        device=args.device,
+        workers=args.workers
+    )
