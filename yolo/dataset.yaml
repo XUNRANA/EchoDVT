@@ -1,0 +1,15 @@
+# YOLO parameters configuration
+# According to standard Ultralytics YOLO dataset format
+
+# Define paths (Relative to where training script is run, or Absolute)
+# Path to the dataset root directory
+path: ../dataset/yolo_dataset   # Update this if the path is different
+
+# Train and Validation folders
+train: images/train
+val: images/val
+
+# Classes
+names:
+  0: artery  # Assuming class 0 is artery
+  1: vein    # Assuming class 1 is vein
