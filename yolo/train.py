@@ -1,90 +1,3 @@
-# """
-# 超声血管检测 YOLO 训练脚本
-# 运行: python train.py
-# """
-
-# from ultralytics import YOLO
-
-# # ============== 配置（直接改这里） ==============
-
-# # 模型路径
-# MODEL_PATH = '/data1/ouyangxinglong/2026/yolo/checkpoints/yolo11m.pt'
-
-# # 数据集配置
-# DATA_YAML = '/data1/ouyangxinglong/2026/yolo/yaml/dvt.yaml'
-
-# # 输出目录
-# PROJECT = '/data1/ouyangxinglong/2026/yolo/runs'
-# NAME = 'vessel_yolo11m_0114_32--'
-
-# # GPU设备
-# DEVICE = 1  
-
-# # 训练参数
-# EPOCHS = 200
-# BATCH = 32  # A100 40G 可以开32
-# IMGSZ = 640
-# PATIENCE = 50  # 早停
-
-# # ============== 训练 ==============
-
-# if __name__ == '__main__':
-    
-#     # 加载预训练模型
-#     model = YOLO(MODEL_PATH)
-    
-#     # 开始训练
-#     results = model.train(
-#         # 数据
-#         data=DATA_YAML,
-        
-#         # 基础参数
-#         epochs=EPOCHS,
-#         batch=BATCH,
-#         imgsz=IMGSZ,
-#         patience=PATIENCE,
-        
-#         # 优化器
-#         optimizer='AdamW',
-#         lr0=0.001,
-#         lrf=0.01,
-#         weight_decay=0.0005,
-        
-#         # 数据增强（超声图像适用）
-#         degrees=10.0,       # 旋转
-#         translate=0.1,      # 平移
-#         scale=0.3,          # 缩放
-#         fliplr=0.5,         # 水平翻转
-#         flipud=0.0,         # 禁止垂直翻转
-#         mosaic=0.5,
-#         mixup=0.1,
-#         hsv_h=0.01,
-#         hsv_s=0.3,
-#         hsv_v=0.3,
-        
-#         # 输出
-#         project=PROJECT,
-#         name=NAME,
-#         exist_ok=True,
-        
-#         # 其他
-#         device=DEVICE,
-#         workers=8,
-#         save=True,
-#         save_period=10,
-#         val=True,
-#         plots=True,
-#     )
-    
-#     print(f"\n训练完成！")
-#     print(f"最佳模型: {PROJECT}/{NAME}/weights/best.pt")
-
-
-
-
-
-
-
 """
 超声血管检测 YOLO 训练脚本
 运行: python train.py
@@ -95,13 +8,13 @@ from ultralytics import YOLO
 # ============== 配置（直接改这里） ==============
 
 # 模型路径
-MODEL_PATH = '/data1/ouyangxinglong/2026/yolo/checkpoints/yolo26l.pt'
+MODEL_PATH = 'checkpoints/yolo26l.pt'
 
 # 数据集配置
-DATA_YAML = '/data1/ouyangxinglong/2026/yolo/yaml/dvt.yaml'
+DATA_YAML = 'dataset.yaml'
 
 # 输出目录
-PROJECT = '/data1/ouyangxinglong/2026/yolo/runs'
+PROJECT = 'runs'
 NAME = 'vessel_yolo26l'
 
 # GPU设备
