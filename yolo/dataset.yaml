@@ -6,10 +6,13 @@
 path: ../dataset/yolo_dataset   # Update this if the path is different
 
 # Train and Validation folders
-train: images/train
-val: images/val
+train: train/images
+val: val/images
 
 # Classes
+
+nc: 2 
+
 names:
   0: artery  # Assuming class 0 is artery
   1: vein    # Assuming class 1 is vein
