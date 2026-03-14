@@ -235,67 +235,44 @@ class LoRA_SAM2_Video(nn.Module):
 
     def _apply_lora_to_memory_attention(self):
         """
-        【终极增强版】Memory Attention 全量 LoRA 注入
-        对 Q/K/V/Out 全部应用 LoRA，提升对变形物体（静脉）和精细边界（动脉）的跟踪能力。
+        Memory Attention LoRA 注入
+
+        SAM2 MemoryAttention 结构:
+          memory_attention.layers[i]  (MemoryAttentionLayer)
+            ├── self_attn       (RoPEAttention)  → q_proj, k_proj, v_proj, out_proj
+            └── cross_attn_image (RoPEAttention) → q_proj, k_proj, v_proj, out_proj
+
+        对 self_attn 和 cross_attn_image 的 Q/K/V/Out 全部注入 LoRA。
         """
-        print(f"Applying FULL LoRA to Memory Attention (r={self.r})")
-        
+        print(f"Applying LoRA to Memory Attention (r={self.r})")
+
         injected_count = 0
-        
-        # 遍历 Memory Attention 的每一层
-        # SAM 2 的 memory_attention 通常是一个 RoPEAttention 或者是多层结构
-        # 我们这里假设它有 layers 属性 (Standard Transformer Block)
-        # 如果是单层结构，可能直接就在 memory_attention 下
-        
-        layers_to_scan = []
-        if hasattr(self.predictor.memory_attention, 'layers'):
-            layers_to_scan = self.predictor.memory_attention.layers
-        else:
-            # 可能是单层，直接把自己加进去
-            layers_to_scan = [self.predictor.memory_attention]
 
-        for i, layer in enumerate(layers_to_scan):
-            # 尝试获取 self_attn 模块，如果没有就直接在 layer 上找
-            attn = getattr(layer, 'self_attn', layer)
-            
-            # 检查是否存在标准的 q_proj, k_proj 等
-            
-            
-            targets = {
-                'q_proj': 'Query',
-                'k_proj': 'Key',
-                'v_proj': 'Value',
-                'out_proj': 'Output'
-            }
-            
-            for attr_name, role in targets.items():
-                if hasattr(attn, attr_name):
-                    original_linear = getattr(attn, attr_name)
-                    if isinstance(original_linear, nn.Linear):
-                        # 创建 LoRA 层
-                        lora_layer = _LoRA_Linear(
-                            original_linear,
-                            nn.Linear(original_linear.in_features, self.r, bias=False),
-                            nn.Linear(self.r, original_linear.out_features, bias=False)
-                        )
-                        # 替换
-                        setattr(attn, attr_name, lora_layer)
-                        
-                        # 加入优化列表
-                        self.w_As.append(lora_layer.linear_a)
-                        self.w_Bs.append(lora_layer.linear_b)
-                        injected_count += 1
-                        
-        
-        if injected_count == 0:
-            print("  Warning: Standard structure not found, using recursive injection...")
-            for name, module in self.predictor.memory_attention.named_modules():
-                if isinstance(module, nn.Linear) and any(k in name for k in ['q_proj', 'k_proj', 'v_proj', 'out_proj', 'qkv']):
-                    # 这里需要更复杂的 setattr 逻辑，暂时略过，假设上面的结构能匹配
-                    # 对于 SAM 2 Hiera，通常都在 layers.x.self_attn 下
-                    pass
+        if not hasattr(self.predictor.memory_attention, 'layers'):
+            print("  Warning: memory_attention has no 'layers', skipping")
+            return
 
-        print(f"  Successfully injected LoRA into {injected_count} layers in Memory Attention.")
+        proj_names = ['q_proj', 'k_proj', 'v_proj', 'out_proj']
+        attn_names = ['self_attn', 'cross_attn_image']
+
+        for i, layer in enumerate(self.predictor.memory_attention.layers):
+            for attn_name in attn_names:
+                attn = getattr(layer, attn_name, None)
+                if attn is None:
+                    continue
+                for proj_name in proj_names:
+                    original_linear = getattr(attn, proj_name, None)
+                    if original_linear is None or not isinstance(original_linear, nn.Linear):
+                        continue
+                    lora_a = nn.Linear(original_linear.in_features, self.r, bias=False)
+                    lora_b = nn.Linear(self.r, original_linear.out_features, bias=False)
+                    lora_layer = _LoRA_Linear(original_linear, lora_a, lora_b)
+                    setattr(attn, proj_name, lora_layer)
+                    self.w_As.append(lora_a)
+                    self.w_Bs.append(lora_b)
+                    injected_count += 1
+
+        print(f"  Injected LoRA into {injected_count} projections in Memory Attention.")
 
     def _apply_lora_to_memory_encoder(self):
         """对 Memory Encoder 进行微调 (直接解冻，不使用 LoRA，因为参数量小且需要学习纹理)"""
@@ -392,7 +369,7 @@ class LoRA_SAM2_Video(nn.Module):
         """加载 LoRA 参数"""
         assert filename.endswith(".pt") or filename.endswith('.pth')
 
-        state_dict = torch.load(filename, map_location='cpu')
+        state_dict = torch.load(filename, map_location='cpu', weights_only=True)
 
         # 加载 LoRA 参数
         for i, w_A in enumerate(self.w_As):
@@ -529,5 +506,8 @@ def build_lora_sam2_video(
         apply_to_memory_attention=apply_to_memory_attention,
         apply_to_memory_encoder=apply_to_memory_encoder,
     )
+
+    # Move LoRA layers to same device as predictor
+    lora_model.to(device)
 
     return lora_model

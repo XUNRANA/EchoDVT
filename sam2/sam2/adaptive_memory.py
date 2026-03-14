@@ -40,42 +40,48 @@ class MemoryQualityScorer:
     DEFAULT_CONFIG = {
         "artery": {  # obj_id = 1
             "weights": {
-                "iou_pred": 0.4,
-                "iou_consistency": 0.3,
-                "area_stability": 0.15,
-                "centroid_stability": 0.15,
+                "iou_pred": 0.45,
+                "iou_consistency": 0.35,
+                "area_stability": 0.10,
+                "centroid_stability": 0.10,
             },
-            "threshold": 0.55,
-            "min_weight": 0.2,
-            "weight_power": 2.0,
+            "threshold": 0.52,
+            "min_weight": 0.35,
+            "weight_power": 1.5,
             "cross_obj_weight": 0.0,
             "cross_max_time_diff": 3,
             "refresh_interval": 0,
-            "refresh_weight": 0.2,
+            "refresh_weight": 0.5,
             "time_decay": 0.0,
             "topk_memory": 0,
+            "bank_topk_memory": 6,
+            "bank_quality_weight": 0.35,
+            "bank_min_quality": 0.40,
         },
         "vein": {  # obj_id = 2
             "weights": {
-                "iou_pred": 0.3,
-                "iou_consistency": 0.3,
-                "area_stability": 0.2,
-                "centroid_stability": 0.2,
+                "iou_pred": 0.45,
+                "iou_consistency": 0.35,
+                "area_stability": 0.10,
+                "centroid_stability": 0.10,
             },
-            "threshold": 0.65,  # Higher threshold for vein (more strict filtering)
-            "min_weight": 0.05,
-            "weight_power": 2.5,
-            "cross_obj_weight": 0.2,
+            "threshold": 0.56,
+            "min_weight": 0.25,
+            "weight_power": 1.4,
+            "cross_obj_weight": 0.0,
             "cross_max_time_diff": 3,
-            "refresh_interval": 8,
-            "refresh_weight": 0.2,
-            "collapse_quality_threshold": 0.55,
-            "collapse_area_ratio_threshold": 0.2,
-            "collapse_min_area": 30,
-            "reopen_weight": 0.3,
-            "collapse_reinit": True,
-            "time_decay": 0.03,
-            "topk_memory": 5,
+            "refresh_interval": 4,
+            "refresh_weight": 0.55,
+            "collapse_quality_threshold": 0.35,
+            "collapse_area_ratio_threshold": 0.05,
+            "collapse_min_area": 12,
+            "reopen_weight": 0.65,
+            "collapse_reinit": False,
+            "time_decay": 0.0,
+            "topk_memory": 8,
+            "bank_topk_memory": 6,
+            "bank_quality_weight": 0.65,
+            "bank_min_quality": 0.30,
         },
     }
 
@@ -424,6 +430,51 @@ def compute_quality_weight(
     return min(weight, 1.0)
 
 
+def _get_stat(prior_stats: Dict, group: str, field: str, key: str, default: float) -> float:
+    try:
+        return float(prior_stats[group][field][key])
+    except (KeyError, TypeError, ValueError):
+        return default
+
+
+def build_av_constraint_config_from_priors(prior_stats: Optional[Dict]) -> Dict:
+    """
+    Build a softer artery-vein constraint configuration from dataset priors.
+
+    The priors are extracted from YOLO label statistics and expressed in normalized
+    image coordinates, so we keep the resulting thresholds in the same space.
+    """
+    if not prior_stats:
+        return {}
+
+    cx_p5 = _get_stat(prior_stats, "artery2vein", "cx_offset", "p5", -0.20)
+    cx_p95 = _get_stat(prior_stats, "artery2vein", "cx_offset", "p95", 0.20)
+    cy_p5 = _get_stat(prior_stats, "artery2vein", "cy_offset", "p5", 0.05)
+    cy_p95 = _get_stat(prior_stats, "artery2vein", "cy_offset", "p95", 0.28)
+
+    max_horizontal_offset = min(0.40, max(abs(cx_p5), abs(cx_p95)) * 1.15 + 0.02)
+    min_vertical_offset = max(0.0, cy_p5 * 0.5)
+    max_vertical_offset = min(0.45, cy_p95 * 1.15 + 0.03)
+    max_av_distance = min(
+        0.45,
+        (max_horizontal_offset**2 + max_vertical_offset**2) ** 0.5,
+    )
+
+    return {
+        "max_av_distance": max_av_distance,
+        "max_horizontal_offset": max_horizontal_offset,
+        "min_vertical_offset": min_vertical_offset,
+        "max_vertical_offset": max_vertical_offset,
+        "max_artery_area_change": 0.40,
+        "max_vein_area_change": 3.50,
+        "max_centroid_shift": max(0.18, min(0.25, max_vertical_offset * 0.70)),
+        "min_mask_area": 20,
+        "enable_single_vessel_rule": False,
+        "fallback_alpha": 0.60,
+        "artery_quality_threshold": 0.70,
+    }
+
+
 class ArteryVeinConstraint:
     """
     基于GT统计的动静脉空间约束模块
@@ -443,12 +494,24 @@ class ArteryVeinConstraint:
         max_vein_area_change: float = 2.5,   # 静脉面积变化上限 (可大幅变化)
         max_centroid_shift: float = 0.15,    # 单帧质心位移上限
         min_mask_area: int = 50,             # 最小有效面积
+        max_horizontal_offset: float = 0.30,
+        min_vertical_offset: float = 0.0,
+        max_vertical_offset: float = 0.35,
+        enable_single_vessel_rule: bool = False,
+        fallback_alpha: float = 0.70,
+        artery_quality_threshold: float = 0.80,
     ):
         self.max_av_distance = max_av_distance
         self.max_artery_area_change = max_artery_area_change
         self.max_vein_area_change = max_vein_area_change
         self.max_centroid_shift = max_centroid_shift
         self.min_mask_area = min_mask_area
+        self.max_horizontal_offset = max_horizontal_offset
+        self.min_vertical_offset = min_vertical_offset
+        self.max_vertical_offset = max_vertical_offset
+        self.enable_single_vessel_rule = enable_single_vessel_rule
+        self.fallback_alpha = fallback_alpha
+        self.artery_quality_threshold = artery_quality_threshold
 
     def compute_centroid(self, mask: torch.Tensor) -> Optional[torch.Tensor]:
         """计算mask质心"""
@@ -505,16 +568,48 @@ class ArteryVeinConstraint:
         result = {
             "valid": True,
             "av_distance": None,
-            "violation": None,
+            "x_offset": None,
+            "y_offset": None,
+            "violations": [],
         }
+
+        artery_centroid = self.compute_centroid(artery_mask)
+        vein_centroid = self.compute_centroid(vein_mask)
+
+        if artery_centroid is None or vein_centroid is None:
+            return result
+
+        H, W = artery_mask.shape[-2:]
+        x_offset = (vein_centroid[1] - artery_centroid[1]).item() / max(W, 1)
+        y_offset = (vein_centroid[0] - artery_centroid[0]).item() / max(H, 1)
+        result["x_offset"] = x_offset
+        result["y_offset"] = y_offset
 
         av_dist = self.compute_av_distance(artery_mask, vein_mask)
         result["av_distance"] = av_dist
 
         if av_dist is not None and av_dist > self.max_av_distance:
-            result["valid"] = False
-            result["violation"] = f"av_distance_too_large ({av_dist:.3f} > {self.max_av_distance})"
+            result["violations"].append(
+                f"av_distance_too_large ({av_dist:.3f} > {self.max_av_distance:.3f})"
+            )
 
+        if abs(x_offset) > self.max_horizontal_offset:
+            result["violations"].append(
+                f"av_horizontal_offset_too_large ({x_offset:.3f})"
+            )
+
+        if y_offset < self.min_vertical_offset:
+            result["violations"].append(
+                f"vein_not_below_artery_enough ({y_offset:.3f})"
+            )
+
+        if y_offset > self.max_vertical_offset:
+            result["violations"].append(
+                f"vein_below_artery_too_far ({y_offset:.3f})"
+            )
+
+        result["valid"] = len(result["violations"]) == 0
+        result["violation"] = result["violations"][0] if result["violations"] else None
         return result
 
     def check_temporal_consistency(
@@ -607,7 +702,8 @@ class ArteryVeinConstraint:
         # 情况1：静脉消失但动脉存在 → 使用上一帧静脉
         if vein_area < self.min_mask_area and artery_area >= self.min_mask_area:
             if prev_vein_mask is not None:
-                return prev_vein_mask.clone()
+                alpha = self.fallback_alpha
+                return alpha * prev_vein_mask + (1 - alpha) * vein_mask
 
         # 情况2：检查动静脉距离
         av_check = self.check_av_proximity(artery_mask, vein_mask)
@@ -615,7 +711,7 @@ class ArteryVeinConstraint:
         if not av_check["valid"] and prev_vein_mask is not None:
             # 静脉离动脉太远，可能是误检
             # 混合使用当前预测和上一帧
-            alpha = 0.7  # 更多依赖上一帧
+            alpha = self.fallback_alpha
             return alpha * prev_vein_mask + (1 - alpha) * vein_mask
 
         return vein_mask
@@ -631,6 +727,9 @@ class ArteryVeinConstraint:
         Returns:
             (corrected_artery, corrected_vein, was_corrected)
         """
+        if not self.enable_single_vessel_rule:
+            return artery_mask, vein_mask, False
+
         artery_area = self.compute_area(artery_mask)
         vein_area = self.compute_area(vein_mask)
 

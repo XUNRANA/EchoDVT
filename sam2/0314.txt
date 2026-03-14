@@ -1,0 +1,20 @@
+
+
+
+● inference_lora.py is fully functional — syntax OK, all imports pass, CLI parses correctly.                                                     
+                                                                                                                                                 
+  When training finishes, run inference like this:                                                                                               
+                                                                                                                                                 
+  # For lora_r4 model                                                                                                                            
+  cd /data1/ouyangxinglong/EchoDVT/sam2                                                                                                          
+  python inference_lora.py \                                                                                                                     
+    --lora-weights checkpoints/lora_runs/lora_r4_lr0.0005_e25_20260314_153134/lora_best.pt \                                                     
+    --lora-r 4 --split val
+
+  # For lora_r8 model
+  python inference_lora.py \
+    --lora-weights checkpoints/lora_runs/lora_r8_lr0.0003_e25_20260314_153210/lora_best.pt \
+    --lora-r 8 --split val
+
+  Early training signs look promising — the r8 model already shows V_dice=0.66 at step 150 (baseline V_dice was 0.63). Results will be saved to
+  sam2/predictions/sam2_lora_yolo_box/ with per-frame visualizations, CSV metrics, and summary JSON.

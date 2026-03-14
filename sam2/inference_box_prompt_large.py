@@ -345,11 +345,24 @@ class SAM2MemoryVideoSegmenter:
     - 后续帧仅依赖 memory 传播
     """
 
-    def __init__(self, model_cfg: str, checkpoint: Path, device: str) -> None:
+    def __init__(
+        self,
+        model_cfg: str,
+        checkpoint: Path,
+        device: str,
+        use_adaptive_memory: bool = False,
+        use_separate_memory: bool = False,
+        use_av_constraint: bool = False,
+        av_prior_stats_path: Optional[Path] = None,
+    ) -> None:
         self.predictor = build_sam2_video_predictor(
             config_file=model_cfg,
             ckpt_path=str(checkpoint),
             device=device,
+            use_adaptive_memory=use_adaptive_memory,
+            use_separate_memory=use_separate_memory,
+            use_av_constraint=use_av_constraint,
+            av_prior_stats_path=str(av_prior_stats_path) if av_prior_stats_path is not None else None,
         )
         self.device = device
 
@@ -663,6 +676,15 @@ def resolve_yolo_device(yolo_device_arg: str, sam2_device: str) -> str | int:
     return yolo_device_arg
 
 
+def str2bool(value: str) -> bool:
+    value_lower = value.strip().lower()
+    if value_lower in {"true", "1", "yes", "y", "on"}:
+        return True
+    if value_lower in {"false", "0", "no", "n", "off"}:
+        return False
+    raise argparse.ArgumentTypeError(f"无法解析布尔值: {value}")
+
+
 def run(args: argparse.Namespace) -> None:
     script_dir = Path(__file__).resolve().parent
     data_root = Path(args.data_root).resolve()
@@ -679,7 +701,12 @@ def run(args: argparse.Namespace) -> None:
         raise FileNotFoundError(f"SAM2 checkpoint 不存在: {sam2_ckpt}")
 
     output_root = Path(args.output_root).resolve()
-    run_name = f"{args.split}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    run_name = (
+        f"{args.split}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        f"_am{int(args.use_adaptive_memory)}"
+        f"_sm{int(args.use_separate_memory)}"
+        f"_av{int(args.use_av_constraint)}"
+    )
     run_dir = output_root / run_name
     vis_root = run_dir / "visualizations"
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -704,6 +731,12 @@ def run(args: argparse.Namespace) -> None:
         f"Mask thresh: artery={artery_thresh:.3f}, vein={vein_thresh:.3f}, "
         f"postprocess={args.postprocess_mode}"
     )
+    logger.log(
+        "SAM2 ablation switches: "
+        f"adaptive_memory={args.use_adaptive_memory}, "
+        f"separate_memory={args.use_separate_memory}, "
+        f"av_constraint={args.use_av_constraint}"
+    )
     logger.log(f"SAM2 device: {sam2_device} | YOLO device: {yolo_device}")
     logger.log(f"Output dir: {run_dir}")
     logger.log("=" * 80)
@@ -722,6 +755,10 @@ def run(args: argparse.Namespace) -> None:
         model_cfg=args.sam2_config,
         checkpoint=sam2_ckpt,
         device=sam2_device,
+        use_adaptive_memory=args.use_adaptive_memory,
+        use_separate_memory=args.use_separate_memory,
+        use_av_constraint=args.use_av_constraint,
+        av_prior_stats_path=yolo_prior_path,
     )
 
     case_dirs = sorted([p for p in split_dir.iterdir() if p.is_dir()])
@@ -931,6 +968,9 @@ def run(args: argparse.Namespace) -> None:
                 "sam2_config": args.sam2_config,
                 "sam2_checkpoint": str(sam2_ckpt),
                 "yolo_model": str(yolo_model_path),
+                "use_adaptive_memory": args.use_adaptive_memory,
+                "use_separate_memory": args.use_separate_memory,
+                "use_av_constraint": args.use_av_constraint,
             },
             f,
             ensure_ascii=False,
@@ -1006,6 +1046,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--sam2-checkpoint", type=str, default=str(default_sam2_ckpt), help="SAM2 checkpoint 路径")
     parser.add_argument("--device", type=str, default="auto", help="SAM2设备: auto / cpu / cuda / cuda:0")
+    parser.add_argument(
+        "--use-adaptive-memory",
+        type=str2bool,
+        default=False,
+        help="是否启用自适应记忆筛选机制: True/False",
+    )
+    parser.add_argument(
+        "--use-separate-memory",
+        type=str2bool,
+        default=False,
+        help="是否启用分离式记忆库: True/False",
+    )
+    parser.add_argument(
+        "--use-av-constraint",
+        type=str2bool,
+        default=False,
+        help="是否启用动静脉相对位置约束: True/False",
+    )
     return parser
 
 

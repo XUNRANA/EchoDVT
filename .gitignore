@@ -3,3 +3,5 @@ yolo/runs/
 yolo/predictions/
 sam2/predictions/
 *.pt
+
+checkpoints/
