@@ -328,6 +328,7 @@ class SAM2VideoTrainer(SAM2VideoPredictor):
                 "pred_masks": pred_masks_gpu,
                 "low_res_masks": low_res_masks,  # 用于计算损失
                 "obj_ptr": current_out.get("obj_ptr"),
+                "object_score_logits": current_out.get("object_score_logits"),
             }
         else:
             compact_current_out = {
@@ -336,6 +337,7 @@ class SAM2VideoTrainer(SAM2VideoPredictor):
                 "pred_masks": pred_masks_gpu.to(storage_device, non_blocking=True),
                 "low_res_masks": low_res_masks,
                 "obj_ptr": current_out.get("obj_ptr"),
+                "object_score_logits": current_out.get("object_score_logits"),
             }
 
         return compact_current_out, pred_masks_gpu
