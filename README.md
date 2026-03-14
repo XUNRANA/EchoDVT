@@ -42,3 +42,20 @@ YOLO提供检测框作为prompt输入给SAM2来完成精确分割，主要利用
 动脉和静脉相对位置的约束(artery and vein relative position constraint)
 
 5.二分类算法的创新
+
+
+SAM2 推理评估脚本（YOLO box prompt，large模型）：
+
+```bash
+cd sam2
+python inference_box_prompt_large.py \
+  --split val \
+  --yolo-model /data1/ouyangxinglong/EchoDVT/yolo/runs/detect/runs/detect/dvt_runs/aug_step5_speckle_translate_scale/weights/best.pt \
+  --sam2-config configs/sam2.1/sam2.1_hiera_l.yaml \
+  --sam2-checkpoint checkpoints/sam2.1_hiera_large.pt
+```
+
+说明：
+- YOLO 输出 artery/vein 两个框作为 SAM2 的 box prompt（缺失框会自动补全）。
+- 仅在有 `masks/*.png` 标注的帧上计算 Dice 与 mIoU。
+- 输出日志、`frame_metrics.csv`、`case_metrics.csv`、`summary.json` 以及每个样例可视化结果。
