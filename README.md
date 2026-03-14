@@ -51,11 +51,13 @@ cd sam2
 python inference_box_prompt_large.py \
   --split val \
   --yolo-model /data1/ouyangxinglong/EchoDVT/yolo/runs/detect/runs/detect/dvt_runs/aug_step5_speckle_translate_scale/weights/best.pt \
-  --sam2-config configs/sam2.1/sam2.1_hiera_l.yaml \
-  --sam2-checkpoint checkpoints/sam2.1_hiera_large.pt
+  --sam2-config configs/sam2/sam2_hiera_l.yaml \
+  --sam2-checkpoint checkpoints/sam2_hiera_large.pt
 ```
 
 说明：
-- YOLO 输出 artery/vein 两个框作为 SAM2 的 box prompt（缺失框会自动补全）。
-- 仅在有 `masks/*.png` 标注的帧上计算 Dice 与 mIoU。
+- YOLO 仅在每个样例首帧输出 artery/vein 两个框作为 SAM2 box prompt（缺失框会自动补全）。
+- 后续帧不再添加新提示，仅依赖 SAM2 memory 传播分割。
+- 仅在有 `masks/*.png` 标注的帧上计算动脉/静脉各自 Dice、mIoU，并汇总整体指标。
+- 提供 frame-weighted 与 case-weighted 两种全局统计口径。
 - 输出日志、`frame_metrics.csv`、`case_metrics.csv`、`summary.json` 以及每个样例可视化结果。
