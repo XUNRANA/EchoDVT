@@ -3,8 +3,8 @@
 SAM2 large 推理评估脚本（YOLO box prompt）
 
 功能：
-1) 使用指定 YOLO 权重为每帧提供 artery/vein 框（含缺失框补全）
-2) 使用 SAM2 large（sam2.1_hiera_large）做 box prompt 分割
+1) 使用指定 YOLO 权重在每个样例首帧提供 artery/vein 框（含缺失框补全）
+2) 使用 SAM2 Large（sam2_hiera_large）视频预测器，仅首帧提示，后续帧依赖记忆传播
 3) 仅在有标准掩码的帧上评估 Dice / mIoU
 4) 记录日志、导出 CSV、可视化每个样例（每个有标注帧）
 """
@@ -19,23 +19,32 @@ from contextlib import nullcontext
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
 import torch
 from ultralytics import YOLO
 
-from sam2.build_sam import build_sam2
-from sam2.sam2_image_predictor import SAM2ImagePredictor
+from sam2.build_sam import build_sam2_video_predictor
 
 
 DETECTION_CLASS_NAMES = {0: "artery", 1: "vein"}
 SEGMENTATION_CLASS_VALUES = {"artery": 1, "vein": 2}
+OBJECT_ID_TO_CLASS = {1: "artery", 2: "vein"}
+CLASS_TO_OBJECT_ID = {"artery": 1, "vein": 2}
 CLASS_COLORS = {
     "artery": (0, 0, 255),  # BGR
     "vein": (0, 255, 0),
 }
+METRIC_KEYS = [
+    "artery_dice",
+    "artery_miou",
+    "vein_dice",
+    "vein_miou",
+    "mean_dice",
+    "miou",
+]
 
 
 class Logger:
@@ -94,10 +103,18 @@ class VesselDetector:
         yolo_device: str | int,
         prior_path: Path,
         retry_conf: float = 0.01,
+        prompt_min_conf: float = 0.05,
+        prompt_min_area_ratio: float = 0.0005,
+        prompt_max_area_ratio: float = 0.6,
+        prompt_max_aspect_ratio: float = 8.0,
     ) -> None:
         self.model = YOLO(str(model_path))
         self.device = yolo_device
         self.retry_conf = retry_conf
+        self.prompt_min_conf = prompt_min_conf
+        self.prompt_min_area_ratio = prompt_min_area_ratio
+        self.prompt_max_area_ratio = prompt_max_area_ratio
+        self.prompt_max_aspect_ratio = prompt_max_aspect_ratio
         self.prior = self._load_prior(prior_path)
 
     def _load_prior(self, prior_path: Path) -> dict:
@@ -177,6 +194,30 @@ class VesselDetector:
         area2 = max(0.0, box2[2] - box2[0]) * max(0.0, box2[3] - box2[1])
         union = area1 + area2 - inter_area
         return inter_area / union if union > 0 else 0.0
+
+    def _is_box_reasonable(self, box: List[float], w: int, h: int) -> bool:
+        bw = max(0.0, box[2] - box[0])
+        bh = max(0.0, box[3] - box[1])
+        area = bw * bh
+        full = float(max(1, w * h))
+        area_ratio = area / full
+        if area_ratio < self.prompt_min_area_ratio or area_ratio > self.prompt_max_area_ratio:
+            return False
+        aspect = max(bw / max(1e-6, bh), bh / max(1e-6, bw))
+        if aspect > self.prompt_max_aspect_ratio:
+            return False
+        return True
+
+    def _apply_quality_gate(self, det: Dict | None, w: int, h: int) -> Dict | None:
+        if det is None:
+            return None
+        if det.get("inferred", False):
+            return det
+        if det["conf"] < self.prompt_min_conf:
+            return None
+        if not self._is_box_reasonable(det["box"], w, h):
+            return None
+        return det
 
     @staticmethod
     def _norm_box_to_xyxy(cx: float, cy: float, bw: float, bh: float, w: int, h: int) -> List[float]:
@@ -279,6 +320,9 @@ class VesselDetector:
         if artery is None or vein is None:
             artery, vein = self._retry_lower_conf(image, artery, vein)
 
+        artery = self._apply_quality_gate(artery, w, h)
+        vein = self._apply_quality_gate(vein, w, h)
+
         if artery is None and vein is None:
             artery = self._infer_class_box("artery", w, h)
             vein = self._infer_vein(artery["box"], w, h)
@@ -294,52 +338,156 @@ class VesselDetector:
         return {"artery": artery, "vein": vein}
 
 
-class SAM2BoxSegmenter:
+class SAM2MemoryVideoSegmenter:
+    """
+    SAM2 视频预测器：
+    - 每个样例仅在首帧添加 box prompt
+    - 后续帧仅依赖 memory 传播
+    """
+
     def __init__(self, model_cfg: str, checkpoint: Path, device: str) -> None:
-        model = build_sam2(config_file=model_cfg, ckpt_path=str(checkpoint), device=device)
-        self.predictor = SAM2ImagePredictor(model)
+        self.predictor = build_sam2_video_predictor(
+            config_file=model_cfg,
+            ckpt_path=str(checkpoint),
+            device=device,
+        )
         self.device = device
 
-    def segment(self, image_bgr: np.ndarray, boxes: Dict[str, Dict | None]) -> Tuple[np.ndarray, Dict[str, Dict]]:
-        if image_bgr is None:
-            raise ValueError("输入图像为空，无法执行 SAM2 分割。")
-        h, w = image_bgr.shape[:2]
-        pred_mask = np.zeros((h, w), dtype=np.uint8)
-        score_map = np.full((h, w), -1e9, dtype=np.float32)
-        detail: Dict[str, Dict] = {}
-        image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+    @staticmethod
+    def _largest_component(mask: np.ndarray) -> np.ndarray:
+        if not np.any(mask):
+            return mask
+        num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(mask.astype(np.uint8), connectivity=8)
+        if num_labels <= 1:
+            return mask
+        largest_idx = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+        return labels == largest_idx
 
+    @classmethod
+    def _postprocess_binary(cls, mask: np.ndarray, mode: str, morph_kernel: int) -> np.ndarray:
+        if mode == "none":
+            return mask
+        out = cls._largest_component(mask)
+        if mode == "lcc_morph":
+            k = max(1, int(morph_kernel))
+            kernel = np.ones((k, k), dtype=np.uint8)
+            out_u8 = out.astype(np.uint8)
+            out_u8 = cv2.morphologyEx(out_u8, cv2.MORPH_OPEN, kernel)
+            out_u8 = cv2.morphologyEx(out_u8, cv2.MORPH_CLOSE, kernel)
+            out = cls._largest_component(out_u8.astype(bool))
+        return out
+
+    @classmethod
+    def _decode_masks_from_logits(
+        cls,
+        out_obj_ids: List[int],
+        out_mask_logits: torch.Tensor,
+        height: int,
+        width: int,
+        artery_thresh: float,
+        vein_thresh: float,
+        postprocess_mode: str,
+        morph_kernel: int,
+    ) -> Dict[str, np.ndarray]:
+        logits_map = {
+            "artery": np.full((height, width), -1e9, dtype=np.float32),
+            "vein": np.full((height, width), -1e9, dtype=np.float32),
+        }
+
+        for i, out_obj_id in enumerate(out_obj_ids):
+            cls_name = OBJECT_ID_TO_CLASS.get(int(out_obj_id))
+            if cls_name is None:
+                continue
+            logits = out_mask_logits[i].detach().float().cpu().numpy().squeeze()
+            if logits.shape != (height, width):
+                logits = cv2.resize(logits, (width, height), interpolation=cv2.INTER_LINEAR)
+            logits_map[cls_name] = logits
+
+        artery_mask = logits_map["artery"] > artery_thresh
+        vein_mask = logits_map["vein"] > vein_thresh
+        artery_mask = cls._postprocess_binary(artery_mask, postprocess_mode, morph_kernel)
+        vein_mask = cls._postprocess_binary(vein_mask, postprocess_mode, morph_kernel)
+
+        semantic = np.zeros((height, width), dtype=np.uint8)
+        semantic[artery_mask] = SEGMENTATION_CLASS_VALUES["artery"]
+        semantic[vein_mask] = SEGMENTATION_CLASS_VALUES["vein"]
+
+        overlap = artery_mask & vein_mask
+        if np.any(overlap):
+            oy, ox = np.where(overlap)
+            artery_logits = logits_map["artery"][oy, ox]
+            vein_logits = logits_map["vein"][oy, ox]
+            semantic[oy, ox] = np.where(
+                artery_logits >= vein_logits,
+                SEGMENTATION_CLASS_VALUES["artery"],
+                SEGMENTATION_CLASS_VALUES["vein"],
+            ).astype(np.uint8)
+
+        return {
+            "artery": artery_mask,
+            "vein": vein_mask,
+            "semantic": semantic,
+        }
+
+    def segment_video_with_first_frame_prompt(
+        self,
+        images_dir: Path,
+        first_frame_boxes: Dict[str, Dict | None],
+        target_frame_indices: set[int],
+        artery_score_thresh: float = 0.0,
+        vein_score_thresh: float = 0.0,
+        postprocess_mode: str = "lcc",
+        morph_kernel: int = 3,
+    ) -> Dict[int, Dict[str, np.ndarray]]:
         amp_ctx = (
             torch.autocast("cuda", dtype=torch.bfloat16)
             if self.device.startswith("cuda")
             else nullcontext()
         )
+        pred_masks: Dict[int, Dict[str, np.ndarray]] = {}
         with torch.inference_mode():
             with amp_ctx:
-                self.predictor.set_image(image_rgb)
-                for cls_name in ("artery", "vein"):
-                    det = boxes.get(cls_name)
-                    if det is None:
-                        detail[cls_name] = {"sam_score": 0.0, "pixel_count": 0}
+                inference_state = self.predictor.init_state(
+                    video_path=str(images_dir),
+                    async_loading_frames=False,
+                )
+                video_h = int(inference_state["video_height"])
+                video_w = int(inference_state["video_width"])
+
+                artery_box = first_frame_boxes["artery"]["box"]
+                vein_box = first_frame_boxes["vein"]["box"]
+                self.predictor.add_new_points_or_box(
+                    inference_state=inference_state,
+                    frame_idx=0,
+                    obj_id=CLASS_TO_OBJECT_ID["artery"],
+                    box=np.asarray(artery_box, dtype=np.float32),
+                )
+                self.predictor.add_new_points_or_box(
+                    inference_state=inference_state,
+                    frame_idx=0,
+                    obj_id=CLASS_TO_OBJECT_ID["vein"],
+                    box=np.asarray(vein_box, dtype=np.float32),
+                )
+
+                for out_frame_idx, out_obj_ids, out_mask_logits in self.predictor.propagate_in_video(
+                    inference_state=inference_state,
+                    start_frame_idx=0,
+                ):
+                    if out_frame_idx not in target_frame_indices:
                         continue
-                    box = np.asarray(det["box"], dtype=np.float32)
-                    masks, scores, _ = self.predictor.predict(
-                        box=box,
-                        multimask_output=True,
-                        return_logits=False,
+                    pred_masks[out_frame_idx] = self._decode_masks_from_logits(
+                        out_obj_ids=out_obj_ids,
+                        out_mask_logits=out_mask_logits,
+                        height=video_h,
+                        width=video_w,
+                        artery_thresh=artery_score_thresh,
+                        vein_thresh=vein_score_thresh,
+                        postprocess_mode=postprocess_mode,
+                        morph_kernel=morph_kernel,
                     )
-                    best_idx = int(np.argmax(scores))
-                    best_score = float(scores[best_idx])
-                    best_mask = masks[best_idx].astype(bool)
-                    cls_value = SEGMENTATION_CLASS_VALUES[cls_name]
-                    update_pixels = best_mask & (best_score >= score_map)
-                    pred_mask[update_pixels] = cls_value
-                    score_map[update_pixels] = best_score
-                    detail[cls_name] = {
-                        "sam_score": best_score,
-                        "pixel_count": int(np.count_nonzero(best_mask)),
-                    }
-        return pred_mask, detail
+
+                self.predictor.reset_state(inference_state)
+        return pred_masks
 
 
 def binary_metrics(pred: np.ndarray, gt: np.ndarray) -> Tuple[float, float]:
@@ -355,16 +503,40 @@ def binary_metrics(pred: np.ndarray, gt: np.ndarray) -> Tuple[float, float]:
     return dice, iou
 
 
-def compute_frame_metrics(pred_mask: np.ndarray, gt_mask: np.ndarray) -> Dict[str, float]:
-    a_dice, a_iou = binary_metrics(pred_mask == 1, gt_mask == 1)
-    v_dice, v_iou = binary_metrics(pred_mask == 2, gt_mask == 2)
+def get_bbox_from_mask(mask: np.ndarray, cls_value: int) -> Optional[List[float]]:
+    ys, xs = np.where(mask == cls_value)
+    if len(xs) == 0:
+        return None
+    x1 = float(xs.min())
+    y1 = float(ys.min())
+    x2 = float(xs.max())
+    y2 = float(ys.max())
+    return [x1, y1, x2, y2]
+
+
+def build_prompt_boxes_from_gt_mask(gt_mask: np.ndarray) -> Optional[Dict[str, Dict]]:
+    artery_box = get_bbox_from_mask(gt_mask, SEGMENTATION_CLASS_VALUES["artery"])
+    vein_box = get_bbox_from_mask(gt_mask, SEGMENTATION_CLASS_VALUES["vein"])
+    if artery_box is None or vein_box is None:
+        return None
+    return {
+        "artery": {"box": artery_box, "conf": 1.0, "from_gt": True},
+        "vein": {"box": vein_box, "conf": 1.0, "from_gt": True},
+    }
+
+
+def compute_frame_metrics(pred_by_class: Dict[str, np.ndarray], gt_mask: np.ndarray) -> Dict[str, float]:
+    a_dice, a_miou = binary_metrics(pred_by_class["artery"], gt_mask == 1)
+    v_dice, v_miou = binary_metrics(pred_by_class["vein"], gt_mask == 2)
     mean_dice = float(np.mean([a_dice, v_dice]))
-    miou = float(np.mean([a_iou, v_iou]))
+    miou = float(np.mean([a_miou, v_miou]))
     return {
         "artery_dice": a_dice,
-        "artery_iou": a_iou,
+        "artery_miou": a_miou,
+        "artery_iou": a_miou,
         "vein_dice": v_dice,
-        "vein_iou": v_iou,
+        "vein_miou": v_miou,
+        "vein_iou": v_miou,
         "mean_dice": mean_dice,
         "miou": miou,
     }
@@ -418,6 +590,7 @@ def build_visualization(
     pred_mask: np.ndarray,
     boxes: Dict[str, Dict | None],
     metrics: Dict[str, float],
+    is_prompt_frame: bool,
 ) -> np.ndarray:
     raw_panel = draw_boxes(image, boxes)
     gt_panel = overlay_mask(image, gt_mask)
@@ -426,14 +599,16 @@ def build_visualization(
     cv2.putText(raw_panel, "Image + YOLO Box", (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
     cv2.putText(gt_panel, "Ground Truth Mask", (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
     cv2.putText(pred_panel, "SAM2 Prediction", (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+    mode_text = "Prompt frame (box)" if is_prompt_frame else "Memory-only frame"
+    cv2.putText(pred_panel, mode_text, (10, 52), cv2.FONT_HERSHEY_SIMPLEX, 0.58, (255, 255, 255), 2)
 
     metric_lines = [
         f"Dice={metrics['mean_dice']:.4f}",
         f"mIoU={metrics['miou']:.4f}",
-        f"A Dice/IoU={metrics['artery_dice']:.4f}/{metrics['artery_iou']:.4f}",
-        f"V Dice/IoU={metrics['vein_dice']:.4f}/{metrics['vein_iou']:.4f}",
+        f"A Dice/mIoU={metrics['artery_dice']:.4f}/{metrics['artery_miou']:.4f}",
+        f"V Dice/mIoU={metrics['vein_dice']:.4f}/{metrics['vein_miou']:.4f}",
     ]
-    y = 56
+    y = 76
     for line in metric_lines:
         cv2.putText(pred_panel, line, (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
         y += 24
@@ -451,15 +626,27 @@ def write_csv(path: Path, rows: List[Dict], fieldnames: List[str]) -> None:
 
 
 def summarize_rows(rows: List[Dict[str, float]]) -> Dict[str, float]:
-    keys = [
-        "artery_dice",
-        "artery_iou",
-        "vein_dice",
-        "vein_iou",
-        "mean_dice",
-        "miou",
-    ]
-    return {k: float(np.mean([r[k] for r in rows])) for k in keys}
+    def _avg(key: str, fallback: Optional[str] = None) -> float:
+        vals = []
+        for row in rows:
+            if key in row:
+                vals.append(row[key])
+            elif fallback is not None and fallback in row:
+                vals.append(row[fallback])
+            else:
+                raise KeyError(f"缺少指标字段: {key}")
+        return float(np.mean(vals))
+
+    return {
+        "artery_dice": _avg("artery_dice"),
+        "artery_miou": _avg("artery_miou", "artery_iou"),
+        "artery_iou": _avg("artery_iou", "artery_miou"),
+        "vein_dice": _avg("vein_dice"),
+        "vein_miou": _avg("vein_miou", "vein_iou"),
+        "vein_iou": _avg("vein_iou", "vein_miou"),
+        "mean_dice": _avg("mean_dice"),
+        "miou": _avg("miou"),
+    }
 
 
 def resolve_sam2_device(device_arg: str) -> str:
@@ -501,15 +688,22 @@ def run(args: argparse.Namespace) -> None:
     logger = Logger(run_dir / "inference_eval.log")
     sam2_device = resolve_sam2_device(args.device)
     yolo_device = resolve_yolo_device(args.yolo_device, sam2_device)
+    artery_thresh = args.mask_score_thresh if args.artery_mask_thresh is None else args.artery_mask_thresh
+    vein_thresh = args.mask_score_thresh if args.vein_mask_thresh is None else args.vein_mask_thresh
 
     logger.log("=" * 80)
-    logger.log("SAM2 large + YOLO box 推理评估")
+    logger.log("SAM2 large + YOLO首帧box提示 + 记忆传播评估")
     logger.log(f"Split: {args.split}")
     logger.log(f"Data root: {data_root}")
     logger.log(f"YOLO model: {yolo_model_path}")
     logger.log(f"YOLO prior: {yolo_prior_path}")
     logger.log(f"SAM2 config: {args.sam2_config}")
     logger.log(f"SAM2 ckpt: {sam2_ckpt}")
+    logger.log("Prompt strategy: 仅首帧使用YOLO box，后续帧仅依赖memory")
+    logger.log(
+        f"Mask thresh: artery={artery_thresh:.3f}, vein={vein_thresh:.3f}, "
+        f"postprocess={args.postprocess_mode}"
+    )
     logger.log(f"SAM2 device: {sam2_device} | YOLO device: {yolo_device}")
     logger.log(f"Output dir: {run_dir}")
     logger.log("=" * 80)
@@ -519,8 +713,12 @@ def run(args: argparse.Namespace) -> None:
         yolo_device=yolo_device,
         prior_path=yolo_prior_path,
         retry_conf=args.retry_conf,
+        prompt_min_conf=args.prompt_min_conf,
+        prompt_min_area_ratio=args.prompt_min_area_ratio,
+        prompt_max_area_ratio=args.prompt_max_area_ratio,
+        prompt_max_aspect_ratio=args.prompt_max_aspect_ratio,
     )
-    segmenter = SAM2BoxSegmenter(
+    segmenter = SAM2MemoryVideoSegmenter(
         model_cfg=args.sam2_config,
         checkpoint=sam2_ckpt,
         device=sam2_device,
@@ -542,22 +740,63 @@ def run(args: argparse.Namespace) -> None:
             logger.log(f"[Skip case] {case_dir.name}: 缺少 images 或 masks 目录")
             continue
 
-        gt_masks = sorted(masks_dir.glob("*.png"))
+        image_files = sorted(images_dir.glob("*.jpg"), key=lambda p: int(p.stem))
+        if not image_files:
+            logger.log(f"[Skip case] {case_dir.name}: 无图像帧")
+            continue
+        frame_stems = [p.stem for p in image_files]
+        stem_to_frame_idx = {stem: idx for idx, stem in enumerate(frame_stems)}
+
+        gt_masks = sorted(masks_dir.glob("*.png"), key=lambda p: int(p.stem))
         if not gt_masks:
             logger.log(f"[Skip case] {case_dir.name}: 无标准掩码")
             continue
+
+        prompt_frame_idx = 0
+        prompt_stem = frame_stems[prompt_frame_idx]
+        prompt_image = cv2.imread(str(image_files[prompt_frame_idx]), cv2.IMREAD_COLOR)
+        if prompt_image is None:
+            logger.log(f"[Skip case] {case_dir.name}: 首帧读取失败 {image_files[prompt_frame_idx].name}")
+            continue
+        first_frame_boxes = detector.predict(prompt_image, conf=args.yolo_conf)
+        logger.log(
+            f"[Case Prompt] {case_dir.name}: first_frame={prompt_stem}, "
+            f"artery_conf={first_frame_boxes['artery']['conf']:.3f}, "
+            f"vein_conf={first_frame_boxes['vein']['conf']:.3f}"
+        )
+
+        eval_targets: Dict[int, Path] = {}
+        for mask_path in gt_masks:
+            stem = mask_path.stem
+            frame_idx = stem_to_frame_idx.get(stem)
+            if frame_idx is None:
+                logger.log(f"[Skip frame] {case_dir.name}/{stem}: 在images中找不到对应帧")
+                skipped_frames += 1
+                continue
+            eval_targets[frame_idx] = mask_path
+
+        if not eval_targets:
+            logger.log(f"[Skip case] {case_dir.name}: 无可评估帧")
+            continue
+
+        pred_masks_by_idx = segmenter.segment_video_with_first_frame_prompt(
+            images_dir=images_dir,
+            first_frame_boxes=first_frame_boxes,
+            target_frame_indices=set(eval_targets.keys()),
+            artery_score_thresh=artery_thresh,
+            vein_score_thresh=vein_thresh,
+            postprocess_mode=args.postprocess_mode,
+            morph_kernel=args.morph_kernel,
+        )
 
         case_metrics: List[Dict[str, float]] = []
         case_vis_dir = vis_root / case_dir.name
         case_vis_dir.mkdir(parents=True, exist_ok=True)
 
-        for mask_path in gt_masks:
-            stem = mask_path.stem
+        for frame_idx in sorted(eval_targets):
+            mask_path = eval_targets[frame_idx]
+            stem = frame_stems[frame_idx]
             image_path = images_dir / f"{stem}.jpg"
-            if not image_path.exists():
-                logger.log(f"[Skip frame] {case_dir.name}/{stem}: 图像缺失 {image_path.name}")
-                skipped_frames += 1
-                continue
 
             image = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
             gt_mask = cv2.imread(str(mask_path), cv2.IMREAD_GRAYSCALE)
@@ -571,9 +810,25 @@ def run(args: argparse.Namespace) -> None:
                 gt_mask = cv2.resize(gt_mask, (w, h), interpolation=cv2.INTER_NEAREST)
                 logger.log(f"[Warn] {case_dir.name}/{stem}: GT 尺寸与图像不一致，已重采样到 {w}x{h}")
 
-            boxes = detector.predict(image, conf=args.yolo_conf)
-            pred_mask, _ = segmenter.segment(image, boxes)
-            metrics = compute_frame_metrics(pred_mask, gt_mask)
+            frame_pred = pred_masks_by_idx.get(frame_idx)
+            if frame_pred is None:
+                logger.log(f"[Skip frame] {case_dir.name}/{stem}: 记忆传播未返回该帧预测")
+                skipped_frames += 1
+                continue
+            if frame_pred["semantic"].shape != (h, w):
+                frame_pred = {
+                    "artery": cv2.resize(
+                        frame_pred["artery"].astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST
+                    ).astype(bool),
+                    "vein": cv2.resize(
+                        frame_pred["vein"].astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST
+                    ).astype(bool),
+                    "semantic": cv2.resize(frame_pred["semantic"], (w, h), interpolation=cv2.INTER_NEAREST),
+                }
+            pred_mask = frame_pred["semantic"]
+            pred_by_class = {"artery": frame_pred["artery"], "vein": frame_pred["vein"]}
+
+            metrics = compute_frame_metrics(pred_by_class, gt_mask)
 
             frame_row = {
                 "case": case_dir.name,
@@ -584,14 +839,23 @@ def run(args: argparse.Namespace) -> None:
             case_metrics.append(metrics)
             processed_frames += 1
 
-            vis = build_visualization(image, gt_mask, pred_mask, boxes, metrics)
+            vis_boxes = first_frame_boxes if frame_idx == prompt_frame_idx else {"artery": None, "vein": None}
+            vis = build_visualization(
+                image=image,
+                gt_mask=gt_mask,
+                pred_mask=pred_mask,
+                boxes=vis_boxes,
+                metrics=metrics,
+                is_prompt_frame=(frame_idx == prompt_frame_idx),
+            )
             vis_path = case_vis_dir / f"{stem}_viz.jpg"
             cv2.imwrite(str(vis_path), vis)
 
             logger.log(
                 f"[{case_dir.name}/{stem}] "
                 f"Dice={metrics['mean_dice']:.4f}, mIoU={metrics['miou']:.4f}, "
-                f"A_dice={metrics['artery_dice']:.4f}, V_dice={metrics['vein_dice']:.4f}"
+                f"A_dice/mIoU={metrics['artery_dice']:.4f}/{metrics['artery_miou']:.4f}, "
+                f"V_dice/mIoU={metrics['vein_dice']:.4f}/{metrics['vein_miou']:.4f}"
             )
 
         if case_metrics:
@@ -600,7 +864,9 @@ def run(args: argparse.Namespace) -> None:
             case_rows.append(case_row)
             logger.log(
                 f"[Case Summary] {case_dir.name}: n={len(case_metrics)}, "
-                f"Dice={case_summary['mean_dice']:.4f}, mIoU={case_summary['miou']:.4f}"
+                f"Dice={case_summary['mean_dice']:.4f}, mIoU={case_summary['miou']:.4f}, "
+                f"A={case_summary['artery_dice']:.4f}/{case_summary['artery_miou']:.4f}, "
+                f"V={case_summary['vein_dice']:.4f}/{case_summary['vein_miou']:.4f}"
             )
 
     if not frame_rows:
@@ -608,13 +874,21 @@ def run(args: argparse.Namespace) -> None:
         raise RuntimeError("没有可评估帧（请检查数据路径与标注文件）。")
 
     global_summary = summarize_rows(frame_rows)
+    case_level_metrics = [{k: row[k] for k in METRIC_KEYS + ["artery_iou", "vein_iou"]} for row in case_rows]
+    global_case_summary = summarize_rows(case_level_metrics)
     logger.log("-" * 80)
     logger.log(f"Processed frames: {processed_frames}, Skipped frames: {skipped_frames}")
     logger.log(
-        f"[Global] Dice={global_summary['mean_dice']:.4f}, "
+        f"[Global-FrameWeighted] Dice={global_summary['mean_dice']:.4f}, "
         f"mIoU={global_summary['miou']:.4f}, "
-        f"A Dice/IoU={global_summary['artery_dice']:.4f}/{global_summary['artery_iou']:.4f}, "
-        f"V Dice/IoU={global_summary['vein_dice']:.4f}/{global_summary['vein_iou']:.4f}"
+        f"A Dice/mIoU={global_summary['artery_dice']:.4f}/{global_summary['artery_miou']:.4f}, "
+        f"V Dice/mIoU={global_summary['vein_dice']:.4f}/{global_summary['vein_miou']:.4f}"
+    )
+    logger.log(
+        f"[Global-CaseWeighted] Dice={global_case_summary['mean_dice']:.4f}, "
+        f"mIoU={global_case_summary['miou']:.4f}, "
+        f"A Dice/mIoU={global_case_summary['artery_dice']:.4f}/{global_case_summary['artery_miou']:.4f}, "
+        f"V Dice/mIoU={global_case_summary['vein_dice']:.4f}/{global_case_summary['vein_miou']:.4f}"
     )
     logger.log("-" * 80)
 
@@ -622,8 +896,10 @@ def run(args: argparse.Namespace) -> None:
         "case",
         "frame",
         "artery_dice",
+        "artery_miou",
         "artery_iou",
         "vein_dice",
+        "vein_miou",
         "vein_iou",
         "mean_dice",
         "miou",
@@ -632,8 +908,10 @@ def run(args: argparse.Namespace) -> None:
         "case",
         "n_frames",
         "artery_dice",
+        "artery_miou",
         "artery_iou",
         "vein_dice",
+        "vein_miou",
         "vein_iou",
         "mean_dice",
         "miou",
@@ -647,6 +925,8 @@ def run(args: argparse.Namespace) -> None:
                 "processed_frames": processed_frames,
                 "skipped_frames": skipped_frames,
                 "global_metrics": global_summary,
+                "global_frame_weighted_metrics": global_summary,
+                "global_case_weighted_metrics": global_case_summary,
                 "split": args.split,
                 "sam2_config": args.sam2_config,
                 "sam2_checkpoint": str(sam2_ckpt),
@@ -679,9 +959,9 @@ def build_parser() -> argparse.ArgumentParser:
     default_yolo_prior = repo_root / "yolo" / "prior_stats.json"
     default_data_root = script_dir / "dataset"
     default_output_root = script_dir / "predictions" / "sam2_large_yolo_box"
-    default_sam2_ckpt = script_dir / "checkpoints" / "sam2.1_hiera_large.pt"
+    default_sam2_ckpt = script_dir / "checkpoints" / "sam2_hiera_large.pt"
 
-    parser = argparse.ArgumentParser(description="SAM2 large + YOLO box 推理评估脚本")
+    parser = argparse.ArgumentParser(description="SAM2 Large + YOLO首帧框 推理评估脚本")
     parser.add_argument("--data-root", type=str, default=str(default_data_root), help="数据集根目录（含 train/val）")
     parser.add_argument("--split", type=str, default="val", choices=["train", "val"], help="评估数据划分")
     parser.add_argument("--output-root", type=str, default=str(default_output_root), help="输出目录根路径")
@@ -691,18 +971,38 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--yolo-prior", type=str, default=str(default_yolo_prior), help="YOLO先验统计文件路径")
     parser.add_argument("--yolo-conf", type=float, default=0.1, help="YOLO主推理置信度阈值")
     parser.add_argument("--retry-conf", type=float, default=0.01, help="YOLO补检置信度阈值")
+    parser.add_argument("--prompt-min-conf", type=float, default=0.05, help="首帧提示框最低置信度")
+    parser.add_argument("--prompt-min-area-ratio", type=float, default=0.0005, help="首帧提示框最小面积占比")
+    parser.add_argument("--prompt-max-area-ratio", type=float, default=0.6, help="首帧提示框最大面积占比")
+    parser.add_argument("--prompt-max-aspect-ratio", type=float, default=8.0, help="首帧提示框最大长宽比")
     parser.add_argument(
         "--yolo-device",
         type=str,
         default="auto",
         help="YOLO设备: auto / cpu / cuda:0 / 0",
     )
+    parser.add_argument(
+        "--mask-score-thresh",
+        type=float,
+        default=0.0,
+        help="SAM2传播掩码默认logit阈值（动静脉未单独设置时使用）",
+    )
+    parser.add_argument("--artery-mask-thresh", type=float, default=None, help="动脉mask logit阈值（可覆盖默认阈值）")
+    parser.add_argument("--vein-mask-thresh", type=float, default=None, help="静脉mask logit阈值（可覆盖默认阈值）")
+    parser.add_argument(
+        "--postprocess-mode",
+        type=str,
+        choices=["none", "lcc", "lcc_morph"],
+        default="lcc",
+        help="传播结果后处理方式：none/lcc/lcc_morph",
+    )
+    parser.add_argument("--morph-kernel", type=int, default=3, help="lcc_morph 模式下形态学核大小")
 
     parser.add_argument(
         "--sam2-config",
         type=str,
-        default="configs/sam2.1/sam2.1_hiera_l.yaml",
-        help="SAM2配置文件（large推荐: configs/sam2.1/sam2.1_hiera_l.yaml）",
+        default="configs/sam2/sam2_hiera_l.yaml",
+        help="SAM2配置文件（固定Large推荐: configs/sam2/sam2_hiera_l.yaml）",
     )
     parser.add_argument("--sam2-checkpoint", type=str, default=str(default_sam2_ckpt), help="SAM2 checkpoint 路径")
     parser.add_argument("--device", type=str, default="auto", help="SAM2设备: auto / cpu / cuda / cuda:0")
