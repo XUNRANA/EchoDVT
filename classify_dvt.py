@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""                                                                                                                                  
+"""
 EchoDVT 二分类脚本 — 基于分割结果判断 DVT
 ==========================================
 原理：压缩超声中，正常静脉在探头压力下塌陷（面积骤减/消失），
         有血栓的静脉拒绝塌陷（面积基本不变）。
+
+支持两种模式：
+  1. 端到端模式（默认）：加载 SAM2 LoRA + YOLO → 推理全帧 → 提取特征 → 分类
+  2. 预计算模式：--pred-dir 指定已有 mask 目录（向后兼容）
 
 输入：SAM2 分割结果目录（每个 case 包含逐帧 semantic mask PNG）
 输出：分类结果、指标报告、可视化图表
@@ -36,10 +40,46 @@ warnings.filterwarnings("ignore")
 
 # ─────────────────────── 配置 ───────────────────────
 
+_REPO_ROOT = Path(__file__).resolve().parent
+_SAM2_DIR = _REPO_ROOT / "sam2"
+
 # 数据集默认路径
 DEFAULT_DATA_ROOT = "/data1/ouyangxinglong/EchoDVT/data/DVT_segmentation"
+DEFAULT_DATA_DIR = str(_SAM2_DIR / "dataset" / "val")
+DEFAULT_NORMAL_LIST = str(_SAM2_DIR / "dataset" / "val_normal.txt")
+DEFAULT_ABNORMAL_LIST = str(_SAM2_DIR / "dataset" / "val_abnormal.txt")
+
+# 推理默认路径
+DEFAULT_SAM2_CONFIG = "configs/sam2/sam2_hiera_l.yaml"
+DEFAULT_SAM2_CHECKPOINT = str(_SAM2_DIR / "checkpoints" / "sam2_hiera_large.pt")
+DEFAULT_LORA_WEIGHTS = str(
+    _SAM2_DIR / "checkpoints" / "lora_runs"
+    / "lora_r8_lr0.0003_e25_20260314_153210" / "lora_best.pt"
+)
+DEFAULT_YOLO_MODEL = str(
+    _REPO_ROOT / "yolo" / "runs" / "detect" / "runs" / "detect"
+    / "dvt_runs" / "aug_step5_speckle_translate_scale" / "weights" / "best.pt"
+)
+DEFAULT_YOLO_PRIOR = str(_REPO_ROOT / "yolo" / "prior_stats.json")
+
 # mask 像素值定义
 BG_VAL, ARTERY_VAL, VEIN_VAL = 0, 1, 2
+
+
+# ─────────────────────── 延迟导入推理模块 ───────────────────────
+
+def _import_inference_modules():
+    """延迟导入 SAM2 推理相关模块，仅在端到端模式下需要"""
+    if str(_SAM2_DIR) not in sys.path:
+        sys.path.insert(0, str(_SAM2_DIR))
+
+    from inference_lora import LoRASAM2VideoSegmenter
+    from inference_box_prompt_large import (
+        VesselDetector, resolve_sam2_device, resolve_yolo_device,
+    )
+    from sam2.postprocess import MultiFramePrompter
+
+    return LoRASAM2VideoSegmenter, VesselDetector, resolve_sam2_device, resolve_yolo_device, MultiFramePrompter
 
 
 # ─────────────────────── 特征提取 ───────────────────────
@@ -150,7 +190,31 @@ def extract_features(masks):
     else:
         features["vein_p10"] = features["vein_p25"] = features["vein_p50"] = 0
 
-    # ── 11. 静脉形状变化（圆度变化）──
+    # ── 11. 分割质量感知特征 ──
+    # 分割差的 case 静脉检出率低、面积跳变大 → 分类器应倾向判 DVT（安全侧）
+    vein_present = vein_areas > 10  # 面积>10像素视为"检测到静脉"
+    features["vein_detect_rate"] = np.mean(vein_present)
+
+    artery_present = artery_areas > 10
+    features["artery_detect_rate"] = np.mean(artery_present)
+
+    # 静脉面积时序平滑度：相邻帧面积变化的均值（归一化），越大越不平滑
+    if n_frames > 1 and vein_max > 0:
+        frame_diffs = np.abs(np.diff(vein_areas))
+        features["vein_jitter"] = np.mean(frame_diffs) / vein_max
+    else:
+        features["vein_jitter"] = 0
+
+    # 静脉面积自相关（lag=1）：真正的压缩过程是平滑的(高自相关)
+    if n_frames > 2 and np.std(vein_areas) > 0:
+        vein_centered = vein_areas - np.mean(vein_areas)
+        autocorr = np.correlate(vein_centered, vein_centered, mode="full")
+        autocorr = autocorr / autocorr[len(vein_centered) - 1]  # normalize
+        features["vein_autocorr"] = autocorr[len(vein_centered)]  # lag=1
+    else:
+        features["vein_autocorr"] = 0
+
+    # ── 12. 静脉形状变化（圆度变化）──
     # 被压扁的静脉会变得更扁（圆度降低）
     circularities = []
     for mask in masks:
@@ -248,6 +312,134 @@ def load_labels_from_file(label_file):
     return labels
 
 
+def load_labels_from_split_files(normal_file, abnormal_file):
+    """从 val_normal.txt / val_abnormal.txt 加载标签"""
+    labels = {}
+    if os.path.exists(normal_file):
+        with open(normal_file) as f:
+            for line in f:
+                name = line.strip()
+                if name:
+                    labels[name] = 0
+    if os.path.exists(abnormal_file):
+        with open(abnormal_file) as f:
+            for line in f:
+                name = line.strip()
+                if name:
+                    labels[name] = 1
+    return labels
+
+
+# ─────────────────────── 端到端推理 ───────────────────────
+
+def run_inference(
+    data_dir,
+    case_names,
+    output_mask_dir,
+    *,
+    sam2_config,
+    sam2_checkpoint,
+    lora_weights,
+    lora_r,
+    yolo_model,
+    yolo_prior,
+    device,
+    use_mfp,
+    mfp_interval,
+    skip_existing=True,
+):
+    """对指定 case 列表运行 SAM2 LoRA + YOLO 全帧推理，保存语义 mask"""
+    import cv2
+
+    (
+        LoRASAM2VideoSegmenter,
+        VesselDetector,
+        resolve_sam2_device,
+        resolve_yolo_device,
+        MultiFramePrompter,
+    ) = _import_inference_modules()
+
+    sam2_device = resolve_sam2_device(device)
+    yolo_device = resolve_yolo_device("auto", sam2_device)
+
+    print(f"\n[Inference] device={sam2_device}, yolo_device={yolo_device}")
+    print(f"[Inference] LoRA weights: {lora_weights} (r={lora_r})")
+    print(f"[Inference] MFP: {'ON interval=' + str(mfp_interval) if use_mfp else 'OFF'}")
+
+    # 构建模型（只构建一次）
+    detector = VesselDetector(
+        model_path=Path(yolo_model),
+        yolo_device=yolo_device,
+        prior_path=Path(yolo_prior),
+    )
+    segmenter = LoRASAM2VideoSegmenter(
+        model_cfg=sam2_config,
+        checkpoint=Path(sam2_checkpoint),
+        lora_weights=Path(lora_weights),
+        device=sam2_device,
+        lora_r=lora_r,
+    )
+    prompter = MultiFramePrompter(interval=mfp_interval) if use_mfp else None
+
+    os.makedirs(output_mask_dir, exist_ok=True)
+    total = len(case_names)
+
+    for idx, case_name in enumerate(case_names, 1):
+        case_out = os.path.join(output_mask_dir, case_name)
+
+        # 跳过已有结果
+        if skip_existing and os.path.isdir(case_out):
+            existing = [f for f in os.listdir(case_out) if f.endswith(".png")]
+            if existing:
+                print(f"  [{idx}/{total}] {case_name}: skip ({len(existing)} masks exist)")
+                continue
+
+        images_dir = Path(data_dir) / case_name / "images"
+        if not images_dir.is_dir():
+            print(f"  [{idx}/{total}] {case_name}: SKIP (no images/ dir)")
+            continue
+
+        image_files = sorted(images_dir.glob("*.jpg"))
+        if not image_files:
+            print(f"  [{idx}/{total}] {case_name}: SKIP (no jpg files)")
+            continue
+
+        num_frames = len(image_files)
+
+        # YOLO 检测首帧
+        first_img = cv2.imread(str(image_files[0]))
+        boxes = detector.predict(first_img, conf=0.1)
+
+        # MFP: 选择额外提示帧
+        extra_prompt_frames = None
+        if prompter is not None:
+            extra_prompt_frames = prompter.select_prompt_frames(
+                num_frames=num_frames,
+                detector=detector,
+                images_dir=images_dir,
+                image_files=image_files,
+            )
+
+        # 推理所有帧
+        pred_masks = segmenter.segment_video_with_first_frame_prompt(
+            images_dir=images_dir,
+            first_frame_boxes=boxes,
+            target_frame_indices=set(range(num_frames)),
+            extra_prompt_frames=extra_prompt_frames,
+        )
+
+        # 保存语义 mask
+        os.makedirs(case_out, exist_ok=True)
+        for fi, frame_data in pred_masks.items():
+            sem = frame_data["semantic"]  # uint8: 0=bg, 1=artery, 2=vein
+            out_path = os.path.join(case_out, f"{fi:05d}.png")
+            Image.fromarray(sem).save(out_path)
+
+        print(f"  [{idx}/{total}] {case_name}: {num_frames} frames -> {case_out}")
+
+    print(f"[Inference] Done. Masks saved to {output_mask_dir}\n")
+
+
 # ─────────────────────── 分类器 ───────────────────────
 
 def threshold_classifier(features_df, feature_name="vcr", threshold=0.5):
@@ -280,9 +472,15 @@ def run_ml_classifiers(X, y, feature_names):
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
 
+    # DVT 代价敏感: class_weight 加大漏判 DVT(FN) 的惩罚
     classifiers = {
         "Logistic Regression": LogisticRegression(max_iter=1000, C=1.0),
+        "LR (cost-sensitive)": LogisticRegression(
+            max_iter=1000, C=1.0, class_weight={0: 1, 1: 3}),
         "Random Forest": RandomForestClassifier(n_estimators=100, max_depth=3, random_state=42),
+        "RF (cost-sensitive)": RandomForestClassifier(
+            n_estimators=100, max_depth=3, random_state=42,
+            class_weight={0: 1, 1: 3}),
         "Gradient Boosting": GradientBoostingClassifier(n_estimators=50, max_depth=2, random_state=42),
     }
 
@@ -415,42 +613,140 @@ def plot_results(features_df, labels, ml_results, output_dir):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="EchoDVT 二分类：基于分割结果判断 DVT"
+        description="EchoDVT 二分类：端到端 SAM2 LoRA 推理 + DVT 分类"
+    )
+
+    # ── 数据/输出 ──
+    parser.add_argument(
+        "--pred-dir", default=None,
+        help="预计算 mask 目录（指定时跳过推理，向后兼容）"
     )
     parser.add_argument(
-        "--pred-dir", required=True,
-        help="SAM2 分割结果目录，内含各 case 子目录，每个子目录有逐帧 mask PNG"
+        "--data-dir", default=DEFAULT_DATA_DIR,
+        help="数据集目录（含各 case 子目录，每个有 images/）"
     )
     parser.add_argument(
         "--data-root", default=DEFAULT_DATA_ROOT,
-        help="数据集根目录（用于加载标签）"
+        help="数据集根目录（仅用于旧式标签加载）"
     )
+    parser.add_argument(
+        "--output-dir", default="results/e2e_classify",
+        help="输出目录"
+    )
+    parser.add_argument(
+        "--mask-cache-dir", default=None,
+        help="推理 mask 缓存目录（默认: output-dir/masks/）"
+    )
+
+    # ── 标签 ──
     parser.add_argument(
         "--label-file", default=None,
         help="标签文件路径 (csv/json/txt)，格式: case_id, label(0/1)"
     )
     parser.add_argument(
-        "--split", default="val", choices=["train", "val"],
+        "--normal-list", default=DEFAULT_NORMAL_LIST,
+        help="正常 case 列表文件（每行一个 case 名）"
     )
     parser.add_argument(
-        "--output-dir", default=None,
-        help="输出目录（默认: pred-dir 下的 classification/）"
+        "--abnormal-list", default=DEFAULT_ABNORMAL_LIST,
+        help="异常 case 列表文件（每行一个 case 名）"
     )
+    parser.add_argument(
+        "--split", default="val", choices=["train", "val"],
+    )
+
+    # ── 推理参数 ──
+    infer_group = parser.add_argument_group("inference", "SAM2 LoRA + YOLO 推理参数")
+    infer_group.add_argument(
+        "--sam2-config", default=DEFAULT_SAM2_CONFIG,
+        help="SAM2 配置文件"
+    )
+    infer_group.add_argument(
+        "--sam2-checkpoint", default=DEFAULT_SAM2_CHECKPOINT,
+        help="SAM2 base checkpoint 路径"
+    )
+    infer_group.add_argument(
+        "--lora-weights", default=DEFAULT_LORA_WEIGHTS,
+        help="LoRA 权重路径"
+    )
+    infer_group.add_argument(
+        "--lora-r", type=int, default=8,
+        help="LoRA rank（须与训练时一致）"
+    )
+    infer_group.add_argument(
+        "--yolo-model", default=DEFAULT_YOLO_MODEL,
+        help="YOLO 模型路径"
+    )
+    infer_group.add_argument(
+        "--yolo-prior", default=DEFAULT_YOLO_PRIOR,
+        help="YOLO prior_stats.json 路径"
+    )
+    infer_group.add_argument(
+        "--device", default="auto",
+        help="推理设备: auto / cuda / cuda:0 / cpu"
+    )
+    infer_group.add_argument(
+        "--mfp", action="store_true", default=True,
+        help="启用 MultiFramePrompter（默认启用）"
+    )
+    infer_group.add_argument(
+        "--no-mfp", action="store_false", dest="mfp",
+        help="禁用 MultiFramePrompter"
+    )
+    infer_group.add_argument(
+        "--mfp-interval", type=int, default=15,
+        help="MFP 采样间隔（帧）"
+    )
+    infer_group.add_argument(
+        "--no-skip-existing", action="store_true", default=False,
+        help="不跳过已有 mask 的 case（强制重新推理）"
+    )
+
+    # ── 分类参数 ──
     parser.add_argument(
         "--vcr-threshold", type=float, default=None,
         help="手动指定 VCR 阈值（不指定则自动搜索最佳）"
     )
     args = parser.parse_args()
 
-    pred_dir = args.pred_dir
-    output_dir = args.output_dir or os.path.join(pred_dir, "classification")
+    output_dir = args.output_dir
     os.makedirs(output_dir, exist_ok=True)
 
     # ── 加载标签 ──
     if args.label_file:
         labels_dict = load_labels_from_file(args.label_file)
+    elif os.path.exists(args.normal_list) and os.path.exists(args.abnormal_list):
+        labels_dict = load_labels_from_split_files(args.normal_list, args.abnormal_list)
     else:
         labels_dict = load_labels(args.data_root, args.split)
+
+    # ── 确定 pred_dir：预计算 or 端到端推理 ──
+    if args.pred_dir:
+        pred_dir = args.pred_dir
+        print(f"[Mode] Pre-computed masks from {pred_dir}")
+    else:
+        mask_cache_dir = args.mask_cache_dir or os.path.join(output_dir, "masks")
+        case_names = sorted(labels_dict.keys()) if labels_dict else sorted(
+            d for d in os.listdir(args.data_dir)
+            if os.path.isdir(os.path.join(args.data_dir, d))
+        )
+        print(f"[Mode] End-to-end inference on {len(case_names)} cases")
+        run_inference(
+            data_dir=args.data_dir,
+            case_names=case_names,
+            output_mask_dir=mask_cache_dir,
+            sam2_config=args.sam2_config,
+            sam2_checkpoint=args.sam2_checkpoint,
+            lora_weights=args.lora_weights,
+            lora_r=args.lora_r,
+            yolo_model=args.yolo_model,
+            yolo_prior=args.yolo_prior,
+            device=args.device,
+            use_mfp=args.mfp,
+            mfp_interval=args.mfp_interval,
+            skip_existing=not args.no_skip_existing,
+        )
+        pred_dir = mask_cache_dir
 
     if not labels_dict:
         print("⚠ 未找到标签文件！将只提取特征，不做分类评估。")
@@ -605,12 +901,72 @@ def main():
             top3_str = ", ".join(f"{n}={v:.3f}" for n, v in top3)
             print(f"    Top features: {top3_str}")
 
-    # 3. 找最佳模型
+    # 3. 找最佳模型（按 AUC）
     best_model = max(ml_results, key=lambda k: ml_results[k]["auc"])
-    print(f"\n  Best model: {best_model} (AUC={ml_results[best_model]['auc']:.3f})")
+    print(f"\n  Best model (AUC): {best_model} (AUC={ml_results[best_model]['auc']:.3f})")
+
+    # ── 3. 高召回率阈值优化（重点：不漏判 DVT 病人）──
+    print("\n── 3. High-Recall Threshold Optimization ──")
+    print("  目标：最大化 Recall（不漏判 DVT），同时 Accuracy ≥ 90%\n")
+
+    best_hr_model = None
+    best_hr_recall = 0
+    best_hr_acc = 0
+    best_hr_thresh = 0.5
+
+    for name, res in ml_results.items():
+        y_prob = res["y_prob"]
+        # 搜索最优阈值：在 Accuracy ≥ 90% 约束下最大化 Recall
+        opt_thresh, opt_recall, opt_acc = 0.5, 0, 0
+        for t in np.linspace(0.01, 0.99, 500):
+            preds_t = (y_prob >= t).astype(int)
+            acc_t = accuracy_score(y, preds_t)
+            rec_t = recall_score(y, preds_t, zero_division=0)
+            if acc_t >= 0.90 and rec_t > opt_recall:
+                opt_recall = rec_t
+                opt_thresh = t
+                opt_acc = acc_t
+            elif acc_t >= 0.90 and rec_t == opt_recall and acc_t > opt_acc:
+                opt_thresh = t
+                opt_acc = acc_t
+
+        preds_opt = (y_prob >= opt_thresh).astype(int)
+        prec_opt = precision_score(y, preds_opt, zero_division=0)
+        f1_opt = f1_score(y, preds_opt, zero_division=0)
+        cm_opt = confusion_matrix(y, preds_opt)
+        fn_count = cm_opt[1, 0]
+
+        print(f"  {name}:")
+        print(f"    Optimal threshold={opt_thresh:.3f}  "
+              f"Acc={opt_acc:.3f}  Prec={prec_opt:.3f}  "
+              f"Rec={opt_recall:.3f}  F1={f1_opt:.3f}")
+        print(f"    TN={cm_opt[0,0]} FP={cm_opt[0,1]} FN={fn_count} TP={cm_opt[1,1]}")
+
+        # 记录到 results
+        ml_results[name]["high_recall_threshold"] = opt_thresh
+        ml_results[name]["high_recall_acc"] = opt_acc
+        ml_results[name]["high_recall_recall"] = opt_recall
+        ml_results[name]["high_recall_preds"] = preds_opt
+
+        if opt_recall > best_hr_recall or (
+            opt_recall == best_hr_recall and opt_acc > best_hr_acc
+        ):
+            best_hr_model = name
+            best_hr_recall = opt_recall
+            best_hr_acc = opt_acc
+            best_hr_thresh = opt_thresh
+
+    print(f"\n  ** Best high-recall model: {best_hr_model}")
+    print(f"     threshold={best_hr_thresh:.3f}  "
+          f"Recall={best_hr_recall:.3f}  Acc={best_hr_acc:.3f}")
+
+    # 使用 high-recall 最佳模型作为最终推荐
+    final_model = best_hr_model
+    final_preds = ml_results[final_model]["high_recall_preds"]
+    final_probs = ml_results[final_model]["y_prob"]
 
     # 4. 可视化
-    print("\n── 3. Generating Visualizations ──")
+    print("\n── 4. Generating Visualizations ──")
     plot_results(features_df, labels_series, ml_results, output_dir)
     print(f"  Plots saved to {output_dir}/")
 
@@ -631,21 +987,28 @@ def main():
                 "recall": float(res["recall"]),
                 "f1": float(res["f1"]),
                 "auc": float(res["auc"]),
+                "high_recall_threshold": float(res.get("high_recall_threshold", 0.5)),
+                "high_recall_accuracy": float(res.get("high_recall_acc", 0)),
+                "high_recall_recall": float(res.get("high_recall_recall", 0)),
             }
             for name, res in ml_results.items()
         },
-        "best_model": best_model,
+        "best_model_auc": best_model,
         "best_auc": float(ml_results[best_model]["auc"]),
+        "recommended_model": final_model,
+        "recommended_threshold": float(best_hr_thresh),
+        "recommended_accuracy": float(best_hr_acc),
+        "recommended_recall": float(best_hr_recall),
     }
 
     with open(os.path.join(output_dir, "classification_report.json"), "w") as f:
         json.dump(report, f, indent=2, ensure_ascii=False)
 
-    # Per-case 预测结果
+    # Per-case 预测结果（使用 high-recall 推荐模型）
     case_results = features_df.copy()
     case_results["true_label"] = labels_series
-    case_results["pred_label"] = ml_results[best_model]["y_pred"]
-    case_results["pred_prob"] = ml_results[best_model]["y_prob"]
+    case_results["pred_label"] = final_preds
+    case_results["pred_prob"] = final_probs
     case_results["correct"] = (case_results["true_label"] == case_results["pred_label"])
     case_results.to_csv(os.path.join(output_dir, "per_case_results.csv"))
 
@@ -654,13 +1017,31 @@ def main():
 
     # 打印错误案例
     errors = case_results[~case_results["correct"]]
-    if len(errors) > 0:
-        print(f"\n── Misclassified Cases ({len(errors)}) ──")
-        for case_id, row in errors.iterrows():
-            label_str = "DVT" if row["true_label"] == 1 else "Normal"
-            pred_str = "DVT" if row["pred_label"] == 1 else "Normal"
-            print(f"  {case_id}: true={label_str}, pred={pred_str}, "
-                    f"prob={row['pred_prob']:.3f}, VCR={row['vcr']:.3f}")
+    fn_cases = errors[(errors["true_label"] == 1) & (errors["pred_label"] == 0)]
+    fp_cases = errors[(errors["true_label"] == 0) & (errors["pred_label"] == 1)]
+
+    print(f"\n── Final Results (model={final_model}, "
+          f"threshold={best_hr_thresh:.3f}) ──")
+    total_correct = case_results["correct"].sum()
+    print(f"  Accuracy: {total_correct}/{len(case_results)} "
+          f"= {total_correct/len(case_results):.1%}")
+    print(f"  False Negatives (DVT→Normal, 漏判): {len(fn_cases)}")
+    print(f"  False Positives (Normal→DVT, 误判): {len(fp_cases)}")
+
+    if len(fn_cases) > 0:
+        print(f"\n  *** DVT 漏判 ({len(fn_cases)} 例) — 需重点关注 ***")
+        for case_id, row in fn_cases.iterrows():
+            print(f"    {case_id}: prob={row['pred_prob']:.3f}, "
+                  f"VCR={row['vcr']:.3f}, VDR={row['vdr']:.3f}")
+
+    if len(fp_cases) > 0:
+        print(f"\n  Normal 误判为 DVT ({len(fp_cases)} 例):")
+        for case_id, row in fp_cases.iterrows():
+            print(f"    {case_id}: prob={row['pred_prob']:.3f}, "
+                  f"VCR={row['vcr']:.3f}")
+
+    if len(errors) == 0:
+        print("  ** 零错误！所有病例分类正确 **")
 
     print("\nDone!")
 
@@ -703,19 +1084,20 @@ if __name__ == "__main__":
 
     使用方式
 
-    # 基本用法（需要标签文件）
+    # 端到端模式（默认）：推理 + 分类
+    python classify_dvt.py --output-dir results/e2e_classify/
+
+    # 指定 LoRA 权重和参数
+    python classify_dvt.py \
+      --lora-weights sam2/checkpoints/lora_runs/.../lora_best.pt \
+      --lora-r 8 --mfp --mfp-interval 15
+
+    # 预计算 mask 模式（向后兼容）
     python classify_dvt.py \
       --pred-dir results/lora_r8_mfp15/ \
-      --label-file /path/to/labels.csv \
-      --split val
+      --label-file /path/to/labels.csv
 
     # 手动指定 VCR 阈值
-    python classify_dvt.py \
-      --pred-dir results/lora_r8_mfp15/ \
-      --label-file /path/to/labels.csv \
-      --vcr-threshold 0.4
-
-    注意：你需要提供一个标签文件（CSV 格式：case_id, label，0=正常，1=DVT），或者确保数据目录下有 normal/ 和 abnormal/
-    子目录。如果你能告诉我标签是怎么存的，我可以帮你适配。
+    python classify_dvt.py --vcr-threshold 0.4
 
 """
