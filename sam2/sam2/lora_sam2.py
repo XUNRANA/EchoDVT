@@ -466,9 +466,14 @@ def build_lora_sam2_video(
     device: str = "cuda",
     lora_layer: Optional[List[int]] = None,
     apply_to_image_encoder: bool = True,
-    apply_to_memory_attention: bool = False,  
+    apply_to_memory_attention: bool = False,
     apply_to_memory_encoder: bool = False,
     use_trainer: bool = True,
+    # AM/SM/AV train-free modules
+    use_adaptive_memory: bool = False,
+    use_separate_memory: bool = False,
+    use_av_constraint: bool = False,
+    av_prior_stats_path: Optional[str] = None,
 ):
     """
     构建 LoRA SAM2 Video 模型
@@ -501,6 +506,10 @@ def build_lora_sam2_video(
             config_file=config_file,
             ckpt_path=ckpt_path,
             device=device,
+            use_adaptive_memory=use_adaptive_memory,
+            use_separate_memory=use_separate_memory,
+            use_av_constraint=use_av_constraint,
+            av_prior_stats_path=av_prior_stats_path,
         )
 
     lora_model = LoRA_SAM2_Video(
