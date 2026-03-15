@@ -584,12 +584,31 @@ class SAM2VideoPredictor(SAM2Base):
             )
             processing_order = range(start_frame_idx, end_frame_idx + 1)
 
+        # OKM: initialize per-object keyframe tracking
+        _use_okm = getattr(self, 'use_okm', False)
+        if _use_okm:
+            self._okm_keyframes = {}  # {obj_idx: {"frame_idx": int, "mask_area": int}}
+
+        # DAM: initialize disappearance-aware memory encoding
+        _use_dam = getattr(self, 'use_dam', False)
+        _dam_min_area = getattr(self, 'dam_min_area', 10)  # on low-res mask (~64x64)
+        if _use_dam:
+            self._dam_last_good_mem = {}  # {obj_idx: maskmem_features tensor}
+
         for frame_idx in tqdm(processing_order, desc="propagate in video"):
             # We run on each object one at a time
             pred_masks_per_obj = [None] * batch_size
 
             for obj_idx in range(batch_size):
                 obj_output_dict = inference_state["output_dict_per_obj"][obj_idx]
+
+                # OKM: tell memory selection which keyframe to keep for this object
+                if _use_okm:
+                    _okm_best = self._okm_keyframes.get(obj_idx)
+                    self._okm_current_keyframe = (
+                        _okm_best["frame_idx"] if _okm_best else None
+                    )
+
                 # We skip those frames already in consolidated outputs (these are frames
                 # that received input clicks or mask). Note that we cannot directly run
                 # batched forward on them via `_run_single_frame_inference` because the
@@ -616,6 +635,31 @@ class SAM2VideoPredictor(SAM2Base):
                         reverse=reverse,
                         run_mem_encoder=True,
                     )
+
+                # OKM: update keyframe — keep the frame with the largest mask
+                if _use_okm:
+                    _m_area = int((pred_masks > 0).sum().item())
+                    _okm_best = self._okm_keyframes.get(obj_idx)
+                    if _okm_best is None or _m_area > _okm_best["mask_area"]:
+                        self._okm_keyframes[obj_idx] = {
+                            "frame_idx": frame_idx, "mask_area": _m_area,
+                        }
+
+                # DAM: when an object disappears, reuse the last good frame's
+                # memory features instead of encoding an empty mask into memory.
+                # This prevents "no-object" memories from overwhelming the bank
+                # when the object later reappears (e.g. vein after compression).
+                if _use_dam:
+                    _dam_area = int((pred_masks > 0).sum().item())
+                    if _dam_area >= _dam_min_area:
+                        # Object visible — remember its memory encoding
+                        if current_out.get("maskmem_features") is not None:
+                            self._dam_last_good_mem[obj_idx] = current_out["maskmem_features"]
+                    elif storage_key == "non_cond_frame_outputs":
+                        # Object disappeared — substitute last good memory
+                        _lg = self._dam_last_good_mem.get(obj_idx)
+                        if _lg is not None and current_out.get("maskmem_features") is not None:
+                            current_out["maskmem_features"] = _lg
 
                 # Store the output
                 obj_output_dict[storage_key][frame_idx] = current_out
