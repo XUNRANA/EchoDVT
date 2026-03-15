@@ -24,6 +24,7 @@ from web.utils.metrics import compute_frame_metrics, compute_mask_area
 def _run_sam2_segmentation(
     state: dict,
     model_variant: str,
+    use_mfp: bool = False,
     progress=gr.Progress(track_tqdm=True),
 ):
     """运行 SAM2 分割"""
@@ -52,11 +53,25 @@ def _run_sam2_segmentation(
 
     # 尝试使用 SAM2 进行真实推理
     pred_masks_by_idx = None
+    is_lora = "LoRA" in model_variant
     try:
-        pred_masks_by_idx = _run_real_sam2(
-            images_dir, detections, set(range(len(frame_files))),
-            model_variant, progress,
-        )
+        if is_lora:
+            # LoRA 变体 — 通过 InferenceService 统一调用
+            from web.services import InferenceService
+            progress(0.05, desc="加载 LoRA SAM2 模型...")
+            pred_masks_by_idx = InferenceService.get().run_segmentation(
+                images_dir=images_dir,
+                detections=detections,
+                num_frames=len(frame_files),
+                use_mfp=use_mfp,
+                variant=model_variant if model_variant in ("LoRA r8", "LoRA r4") else "LoRA r8",
+            )
+        else:
+            # Baseline / AM / SM / AV 变体 — 原始 build_sam2_video_predictor
+            pred_masks_by_idx = _run_baseline_sam2(
+                images_dir, detections, set(range(len(frame_files))),
+                model_variant, progress,
+            )
     except Exception as e:
         progress(0, desc=f"SAM2 推理失败: {e}，使用 Demo 模式")
 
@@ -125,8 +140,8 @@ def _run_sam2_segmentation(
     return state, first_vis, gallery_images, report
 
 
-def _run_real_sam2(images_dir, detections, target_indices, model_variant, progress):
-    """尝试运行真实的 SAM2 推理"""
+def _run_baseline_sam2(images_dir, detections, target_indices, model_variant, progress):
+    """运行 Baseline SAM2 推理（非 LoRA 变体）"""
     from sam2.build_sam import build_sam2_video_predictor
     import torch
     from contextlib import nullcontext
@@ -275,9 +290,15 @@ def build_segmentation_tab(state: gr.State):
                     "Baseline + AV",
                     "Baseline + AM + SM + AV",
                 ],
-                value="Baseline (Large)",
+                value="LoRA r8",
                 label="🧠 模型变体",
                 info="选择不同的 SAM2 模型变体进行分割",
+            )
+
+            use_mfp = gr.Checkbox(
+                label="启用多帧提示 (MFP)",
+                value=False,
+                info="在多个帧上运行 YOLO 检测作为额外 conditioning（仅对 LoRA 变体生效）",
             )
 
             segment_btn = gr.Button("🔬 开始分割", variant="primary", size="lg")
@@ -300,6 +321,6 @@ def build_segmentation_tab(state: gr.State):
 
     segment_btn.click(
         fn=_run_sam2_segmentation,
-        inputs=[state, model_variant],
+        inputs=[state, model_variant, use_mfp],
         outputs=[state, seg_preview, seg_gallery, seg_report],
     )

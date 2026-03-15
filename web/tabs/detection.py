@@ -74,12 +74,10 @@ def _run_yolo_detection(state: dict, weight_key: str, conf_threshold: float):
         # 模拟模式：使用 GT mask 提取框（用于 demo）
         return _demo_detection_from_gt(state, img)
 
-    # 加载 YOLO 模型
+    # 加载 YOLO 模型（通过 InferenceService 单例）
     try:
-        from inference import VesselDetector
-        prior_path = _find_prior_stats()
-        detector = VesselDetector(model_path, device=0, prior_path=prior_path)
-        result = detector.predict(img, conf=conf_threshold)
+        from web.services import InferenceService
+        result = InferenceService.get().run_detection(img, conf=conf_threshold)
     except ImportError:
         # 如果无法导入 ultralytics，使用 GT mask
         return _demo_detection_from_gt(state, img)
