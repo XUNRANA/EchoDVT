@@ -57,7 +57,7 @@ def _find_prior_stats() -> str:
 def _run_yolo_detection(state: dict, weight_key: str, conf_threshold: float):
     """运行 YOLO 检测"""
     if not state.get("frame_files"):
-        return state, None, "⚠️ 请先在「视频上传」Tab 中加载案例"
+        return state, None, "⚠️ 请先在「📤 数据输入」Tab 中加载案例"
 
     # 加载首帧
     first_frame_path = state["frame_files"][0]
@@ -165,14 +165,20 @@ def _format_detection_report(result: dict, w: int, h: int) -> str:
 def build_detection_tab(state: gr.State):
     """构建 YOLO 检测展示 Tab"""
 
-    gr.Markdown("""
-    ### YOLO 血管检测
-    在首帧上运行 YOLO 检测，识别动脉 (artery) 和静脉 (vein) 的边界框。
-    缺失框会通过统计先验自动补全。
-    """)
+    with gr.Row(equal_height=False):
+        with gr.Column(scale=2):
+            gr.HTML("""
+            <div style="padding:16px 20px; background:linear-gradient(135deg, #3b1f1f, #1e293b);
+                        border-radius:12px; border:1px solid #334155; margin-bottom:8px;">
+                <h3 style="margin:0 0 4px 0; color:#e2e8f0; font-size:16px;">
+                    🎯 YOLO 血管检测
+                </h3>
+                <p style="margin:0; color:#94a3b8; font-size:13px;">
+                    在首帧上运行 YOLO 检测，识别动脉 <span style="color:#ef4444;">■</span> 和静脉 <span style="color:#22c55e;">■</span> 的边界框
+                </p>
+            </div>
+            """)
 
-    with gr.Row():
-        with gr.Column(scale=1):
             available_weights = _find_yolo_weights()
             weight_choices = list(available_weights.keys())
 
@@ -191,9 +197,12 @@ def build_detection_tab(state: gr.State):
 
             detect_btn = gr.Button("🎯 运行检测", variant="primary", size="lg")
 
-            detection_report = gr.Markdown("点击「运行检测」查看结果")
+            detection_report = gr.Markdown("""
+> 💡 **操作指引**: 选择 YOLO 权重和置信度阈值后，点击「运行检测」。
+> 缺失检测框会通过统计先验自动补全。
+""")
 
-        with gr.Column(scale=2):
+        with gr.Column(scale=3):
             detection_image = gr.Image(
                 label="首帧检测结果（红色=动脉，绿色=静脉）",
                 height=500,
