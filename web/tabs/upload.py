@@ -297,10 +297,11 @@ def build_upload_tab(state: gr.State):
 
                 # ---- 方式 B: 上传视频 ----
                 with gr.Tab("上传本地视频", id="video_upload"):
-                    video_input = gr.Video(
-                        label="上传超声视频",
-                        sources=["upload"],
-                        include_audio=False,
+                    # ★ 使用 gr.File 替代 gr.Video，避免 "Video not playable" 错误
+                    video_input = gr.File(
+                        label="上传超声视频文件",
+                        file_types=[".mp4", ".avi", ".mov", ".mkv", ".wmv", ".flv"],
+                        type="filepath",
                     )
 
                     upload_btn = gr.Button(
@@ -357,3 +358,4 @@ def build_upload_tab(state: gr.State):
         inputs=[video_input, state],
         outputs=[state, preview_image, case_info, frame_gallery],
     )
+
