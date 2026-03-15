@@ -389,6 +389,12 @@ class LoRA_SAM2_Video(nn.Module):
                 model_dict[key] = state_dict[key]
 
         self.predictor.load_state_dict(model_dict)
+
+        # Move LoRA weights to the same device as predictor
+        device = next(self.predictor.parameters()).device
+        self.w_As.to(device)
+        self.w_Bs.to(device)
+
         print(f"LoRA parameters loaded from {filename}")
 
     # === 代理方法,让 LoRA_SAM2_Video 可以像 predictor 一样使用 ===
