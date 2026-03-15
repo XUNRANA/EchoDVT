@@ -6,7 +6,6 @@
 
 import logging
 import os
-import json
 
 import torch
 from hydra import compose
@@ -106,14 +105,6 @@ def build_sam2_video_predictor(
     hydra_overrides_extra=[],
     apply_postprocessing=True,
     vos_optimized=False,
-    # === Adaptive Memory Parameters (for vein/artery segmentation optimization) ===
-    use_adaptive_memory=False,
-    use_separate_memory=False,
-    memory_quality_config=None,
-    # === NEW: Artery-Vein geometric constraint ===
-    use_av_constraint=False,
-    av_constraint_config=None,
-    av_prior_stats_path=None,
     **kwargs,
 ):
     hydra_overrides = [
@@ -138,52 +129,12 @@ def build_sam2_video_predictor(
             "++model.fill_hole_area=8",
         ]
 
-    # === Add adaptive memory overrides ===
-    if use_adaptive_memory:
-        hydra_overrides_extra.append("++model.use_adaptive_memory=true")
-    if use_separate_memory:
-        hydra_overrides_extra.append("++model.use_separate_memory=true")
-    if use_av_constraint:
-        hydra_overrides_extra.append("++model.use_vein_geometric_constraint=true")
-
     hydra_overrides.extend(hydra_overrides_extra)
 
     # Read config and init model
     cfg = compose(config_name=config_file, overrides=hydra_overrides)
     OmegaConf.resolve(cfg)
-
-    # 注意: memory_quality_config 需要在实例化后设置，不能通过 instantiate() 传递
-    # 因为 Hydra 会递归实例化子组件，导致参数传递错误
     model = instantiate(cfg.model, _recursive_=True)
-
-    # 在模型实例化后设置 memory_quality_config
-    if memory_quality_config is not None and hasattr(model, 'memory_quality_scorer'):
-        if model.memory_quality_scorer is not None:
-            model.memory_quality_scorer.config = memory_quality_config
-            model._memory_quality_config = memory_quality_config
-        else:
-            # 如果 use_adaptive_memory=True 但 scorer 还未初始化
-            from sam2.adaptive_memory import MemoryQualityScorer
-            model.memory_quality_scorer = MemoryQualityScorer(config=memory_quality_config)
-            model._memory_quality_config = memory_quality_config
-
-    if use_av_constraint:
-        resolved_av_constraint_config = dict(av_constraint_config or {})
-        if av_prior_stats_path is not None:
-            if not os.path.exists(av_prior_stats_path):
-                raise FileNotFoundError(f"AV prior stats file not found: {av_prior_stats_path}")
-            with open(av_prior_stats_path, "r", encoding="utf-8") as f:
-                prior_stats = json.load(f)
-            from sam2.adaptive_memory import build_av_constraint_config_from_priors
-
-            resolved_av_constraint_config = {
-                **build_av_constraint_config_from_priors(prior_stats),
-                **resolved_av_constraint_config,
-            }
-
-        if hasattr(model, "configure_av_constraint"):
-            model.configure_av_constraint(resolved_av_constraint_config)
-
     _load_checkpoint(model, ckpt_path)
     model = model.to(device)
     if mode == "eval":

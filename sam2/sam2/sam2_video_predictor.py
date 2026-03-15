@@ -15,13 +15,6 @@ from tqdm import tqdm
 
 from sam2.modeling.sam2_base import NO_OBJ_SCORE, SAM2Base
 from sam2.utils.misc import concat_points, fill_holes_in_mask_scores, load_video_frames
-from sam2.adaptive_memory import (
-    MemoryQualityScorer,
-    SeparateMemoryBank,
-    compute_quality_weight,
-    ArteryVeinConstraint,
-    TemporalMemoryAggregator,
-)
 
 
 class SAM2VideoPredictor(SAM2Base):
@@ -38,18 +31,6 @@ class SAM2VideoPredictor(SAM2Base):
         # if `add_all_frames_to_correct_as_cond` is True, we also append to the conditioning frame list any frame that receives a later correction click
         # if `add_all_frames_to_correct_as_cond` is False, we conditioning frame list to only use those initial conditioning frames
         add_all_frames_to_correct_as_cond=False,
-        # === Adaptive Memory Parameters (for vein/artery segmentation optimization) ===
-        # whether to use adaptive memory filtering based on frame quality scores
-        use_adaptive_memory=False,
-        # whether to use separate memory banks for different object types (artery vs vein)
-        use_separate_memory=False,
-        # custom configuration for memory quality scorer (None uses defaults)
-        memory_quality_config=None,
-        # === NEW: Vein-specific geometric constraints ===
-        use_vein_geometric_constraint=False,
-        av_constraint_config=None,
-        # === NEW: Temporal memory aggregation for better vein tracking ===
-        use_temporal_aggregation=False,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -57,235 +38,6 @@ class SAM2VideoPredictor(SAM2Base):
         self.non_overlap_masks = non_overlap_masks
         self.clear_non_cond_mem_around_input = clear_non_cond_mem_around_input
         self.add_all_frames_to_correct_as_cond = add_all_frames_to_correct_as_cond
-
-        # Adaptive memory settings
-        self.use_adaptive_memory = use_adaptive_memory
-        self.use_separate_memory = use_separate_memory
-
-        # We still need quality estimates for AV gating and bank selection even when
-        # adaptive filtering itself is disabled.
-        self._requires_quality_tracking = (
-            use_adaptive_memory or use_separate_memory or use_vein_geometric_constraint
-        )
-        if self._requires_quality_tracking:
-            self.memory_quality_scorer = MemoryQualityScorer(config=memory_quality_config)
-            self._memory_quality_config = self.memory_quality_scorer.config
-        else:
-            self.memory_quality_scorer = None
-            self._memory_quality_config = None
-
-        # NEW: Initialize artery-vein constraint (based on GT statistics)
-        self.use_vein_geometric_constraint = use_vein_geometric_constraint
-        self._av_constraint_config = None
-        if use_vein_geometric_constraint:
-            self.configure_av_constraint(av_constraint_config)
-        else:
-            self.av_constraint = None
-
-        # NEW: Initialize temporal memory aggregator
-        self.use_temporal_aggregation = use_temporal_aggregation
-        if use_temporal_aggregation:
-            self.temporal_aggregator = TemporalMemoryAggregator(
-                max_reliable_frames=5,
-                reliability_threshold=0.7,
-                temporal_smoothing=0.3,
-            )
-        else:
-            self.temporal_aggregator = None
-
-    def configure_av_constraint(self, av_constraint_config: Optional[Dict] = None):
-        """Configure the artery-vein constraint after model construction."""
-        if not self.use_vein_geometric_constraint:
-            self.av_constraint = None
-            self._av_constraint_config = None
-            return
-
-        self._av_constraint_config = dict(av_constraint_config or {})
-        self.av_constraint = ArteryVeinConstraint(**self._av_constraint_config)
-
-    @staticmethod
-    def _combine_memory_weight(current_out, factor: Optional[float]):
-        """Accumulate memory attenuation metadata without scaling features in-place."""
-        if factor is None:
-            return
-        base_weight = current_out.get("memory_weight", 1.0)
-        current_out["memory_weight"] = max(0.0, min(1.0, float(base_weight) * float(factor)))
-
-    def _get_memory_config_for_obj(self, obj_id: int) -> Dict:
-        if self._memory_quality_config is None:
-            return {}
-        return (
-            self._memory_quality_config.get("artery", {})
-            if obj_id == 1
-            else self._memory_quality_config.get("vein", {})
-        )
-
-    @staticmethod
-    def _get_output_quality_score(output: Optional[Dict], default: Optional[float] = 0.5):
-        if output is None:
-            return default
-        quality_score = output.get("quality_score")
-        if quality_score is None and output.get("quality_info") is not None:
-            quality_score = output["quality_info"].get("quality_score")
-        if quality_score is not None:
-            return float(quality_score)
-        object_score_logits = output.get("object_score_logits")
-        if object_score_logits is not None:
-            return float(torch.sigmoid(object_score_logits.float()).max().item())
-        return default
-
-    def _select_non_cond_sequence_from_bank(
-        self,
-        bank_outputs: Dict[int, Dict],
-        frame_idx: int,
-        reverse: bool,
-        obj_cfg: Dict,
-    ):
-        """Select a quality-aware sequence of memories from the dedicated bank."""
-        memory_slots = max(self.num_maskmem - 1, 0)
-        if memory_slots == 0 or not bank_outputs:
-            return []
-
-        bank_topk = int(obj_cfg.get("bank_topk_memory", memory_slots))
-        if bank_topk <= 0:
-            bank_topk = memory_slots
-        bank_topk = min(bank_topk, memory_slots)
-        quality_weight = float(obj_cfg.get("bank_quality_weight", 0.5))
-        min_quality = float(obj_cfg.get("bank_min_quality", 0.0))
-
-        filtered_items = []
-        fallback_items = []
-        for t, out in bank_outputs.items():
-            if reverse:
-                if t <= frame_idx:
-                    continue
-            else:
-                if t >= frame_idx:
-                    continue
-
-            quality = self._get_output_quality_score(out, default=0.5)
-            time_diff = abs(frame_idx - t)
-            recency = 1.0 / max(time_diff, 1)
-            rank_score = quality_weight * quality + (1.0 - quality_weight) * recency
-            item = (rank_score, time_diff, t, out)
-            fallback_items.append(item)
-            if quality >= min_quality:
-                filtered_items.append(item)
-
-        candidates = filtered_items if filtered_items else fallback_items
-        if not candidates:
-            return []
-
-        candidates.sort(
-            key=lambda item: (
-                -item[0],
-                item[1],
-                -item[2] if not reverse else item[2],
-            )
-        )
-        selected = candidates[:bank_topk]
-        selected.sort(key=lambda item: (item[1], -item[2] if not reverse else item[2]))
-        return [out for _, _, _, out in selected]
-
-    def _build_output_dict_for_inference(
-        self,
-        inference_state,
-        obj_output_dict,
-        obj_id: int,
-        frame_idx: int,
-        reverse: bool,
-    ):
-        output_dict_for_inference = obj_output_dict
-        if not (
-            inference_state.get("use_separate_memory")
-            and inference_state.get("separate_memory_banks")
-            and self._memory_quality_config is not None
-        ):
-            return output_dict_for_inference
-
-        obj_cfg = self._get_memory_config_for_obj(obj_id)
-        obj_type = "artery" if obj_id == 1 else "vein"
-        bank = inference_state["separate_memory_banks"].memory_banks.get(obj_type, {})
-        cond_outputs = bank.get("cond_frame_outputs") or obj_output_dict["cond_frame_outputs"]
-        non_cond_outputs = bank.get("non_cond_frame_outputs", {})
-        output_dict_for_inference = {
-            "cond_frame_outputs": cond_outputs,
-            "non_cond_frame_outputs": non_cond_outputs,
-        }
-        sequence_outputs = self._select_non_cond_sequence_from_bank(
-            non_cond_outputs,
-            frame_idx=frame_idx,
-            reverse=reverse,
-            obj_cfg=obj_cfg,
-        )
-        if sequence_outputs:
-            output_dict_for_inference["non_cond_sequence_outputs"] = sequence_outputs
-
-        cross_weight = obj_cfg.get("cross_obj_weight", 0.0)
-        if cross_weight > 0:
-            max_time_diff = obj_cfg.get("cross_max_time_diff", 3)
-            cross_memories = inference_state["separate_memory_banks"].get_cross_object_memory(
-                obj_id=obj_id, frame_idx=frame_idx, max_time_diff=max_time_diff
-            )
-            cross_outputs = []
-            for _, out in cross_memories:
-                if out is None or out.get("maskmem_features") is None:
-                    continue
-                base_weight = out.get("memory_weight", None)
-                if base_weight is None:
-                    base_weight = compute_quality_weight(
-                        out.get("quality_score"),
-                        min_weight=obj_cfg.get("min_weight", 0.1),
-                        weight_power=obj_cfg.get("weight_power", 2.0),
-                    )
-                cross_out = dict(out)
-                cross_out["memory_weight"] = min(1.0, base_weight * cross_weight)
-                cross_outputs.append(cross_out)
-            if cross_outputs:
-                output_dict_for_inference["cross_obj_outputs"] = cross_outputs
-
-        return output_dict_for_inference
-
-    def _sync_output_after_mask_update(
-        self,
-        inference_state,
-        frame_idx,
-        current_out,
-        pred_masks_gpu,
-        rerun_mem_encoder,
-    ):
-        """Update cached masks and optionally rebuild memory features after AV correction."""
-        storage_device = inference_state["storage_device"]
-        current_out["pred_masks"] = pred_masks_gpu.to(storage_device, non_blocking=True)
-        high_res_masks = current_out.get("pred_masks_high_res")
-        if (
-            high_res_masks is None
-            or pred_masks_gpu.size(-2) != self.image_size
-            or pred_masks_gpu.size(-1) != self.image_size
-        ):
-            high_res_masks = F.interpolate(
-                pred_masks_gpu.float(),
-                size=(self.image_size, self.image_size),
-                mode="bilinear",
-                align_corners=False,
-            )
-        else:
-            high_res_masks = pred_masks_gpu
-        current_out["pred_masks_high_res"] = high_res_masks.to(
-            storage_device, non_blocking=True
-        )
-
-        if rerun_mem_encoder and current_out.get("maskmem_features") is not None:
-            maskmem_features, maskmem_pos_enc = self._run_memory_encoder(
-                inference_state=inference_state,
-                frame_idx=frame_idx,
-                batch_size=1,
-                high_res_masks=high_res_masks,
-                object_score_logits=current_out["object_score_logits"],
-                is_mask_from_pts=False,
-            )
-            current_out["maskmem_features"] = maskmem_features
-            current_out["maskmem_pos_enc"] = maskmem_pos_enc
 
     @torch.inference_mode()
     def init_state(
@@ -345,23 +97,6 @@ class SAM2VideoPredictor(SAM2Base):
         # (we directly use their consolidated outputs during tracking)
         # metadata for each tracking frame (e.g. which direction it's tracked)
         inference_state["frames_tracked_per_obj"] = {}
-
-        # === Adaptive Memory State ===
-        # Track whether adaptive memory features are enabled
-        inference_state["use_adaptive_memory"] = self.use_adaptive_memory
-        inference_state["use_separate_memory"] = self.use_separate_memory
-
-        # Store previous frame outputs for quality computation (per object)
-        inference_state["prev_frame_outputs_per_obj"] = {}
-
-        # Initialize separate memory banks if enabled
-        if self.use_separate_memory:
-            inference_state["separate_memory_banks"] = SeparateMemoryBank()
-        else:
-            inference_state["separate_memory_banks"] = None
-
-        # Store quality scores for debugging/analysis
-        inference_state["quality_scores_per_obj"] = {}
 
         # Warm up the visual backbone and cache the image feature on frame 0
         self._get_image_feature(inference_state, frame_idx=0, batch_size=1)
@@ -849,17 +584,12 @@ class SAM2VideoPredictor(SAM2Base):
             )
             processing_order = range(start_frame_idx, end_frame_idx + 1)
 
-        # Initialize previous frame outputs for adaptive memory (per object)
-        prev_frame_outputs = [None] * batch_size
-
         for frame_idx in tqdm(processing_order, desc="propagate in video"):
+            # We run on each object one at a time
             pred_masks_per_obj = [None] * batch_size
-            frame_infos = [None] * batch_size
 
             for obj_idx in range(batch_size):
                 obj_output_dict = inference_state["output_dict_per_obj"][obj_idx]
-                obj_id = self._obj_idx_to_id(inference_state, obj_idx)
-
                 # We skip those frames already in consolidated outputs (these are frames
                 # that received input clicks or mask). Note that we cannot directly run
                 # batched forward on them via `_run_single_frame_inference` because the
@@ -875,17 +605,9 @@ class SAM2VideoPredictor(SAM2Base):
                         )
                 else:
                     storage_key = "non_cond_frame_outputs"
-                    output_dict_for_inference = self._build_output_dict_for_inference(
-                        inference_state=inference_state,
-                        obj_output_dict=obj_output_dict,
-                        obj_id=obj_id,
-                        frame_idx=frame_idx,
-                        reverse=reverse,
-                    )
-
                     current_out, pred_masks = self._run_single_frame_inference(
                         inference_state=inference_state,
-                        output_dict=output_dict_for_inference,
+                        output_dict=obj_output_dict,
                         frame_idx=frame_idx,
                         batch_size=1,
                         is_init_cond_frame=False,
@@ -893,105 +615,15 @@ class SAM2VideoPredictor(SAM2Base):
                         mask_inputs=None,
                         reverse=reverse,
                         run_mem_encoder=True,
-                        obj_id=obj_id,
-                        prev_frame_output=prev_frame_outputs[obj_idx],
-                    )
-                    # AM: quality score is stored in compact_current_out["memory_weight"]
-                    # and applied as soft weight in sam2_base.py track_step (never drop memory)
-
-                frame_infos[obj_idx] = {
-                    "obj_id": obj_id,
-                    "obj_output_dict": obj_output_dict,
-                    "storage_key": storage_key,
-                    "current_out": current_out,
-                    "pred_masks": pred_masks,
-                }
-                pred_masks_per_obj[obj_idx] = pred_masks
-
-            artery_idx = next(
-                (idx for idx, info in enumerate(frame_infos) if info is not None and info["obj_id"] == 1),
-                None,
-            )
-            vein_idx = next(
-                (idx for idx, info in enumerate(frame_infos) if info is not None and info["obj_id"] == 2),
-                None,
-            )
-            # AV constraint: always apply when enabled (no quality gating)
-            if (
-                self.av_constraint is not None
-                and artery_idx is not None
-                and vein_idx is not None
-                and pred_masks_per_obj[artery_idx] is not None
-                and pred_masks_per_obj[vein_idx] is not None
-            ):
-                artery_mask = pred_masks_per_obj[artery_idx]
-                vein_mask = pred_masks_per_obj[vein_idx]
-                prev_vein = None
-                if prev_frame_outputs[vein_idx] is not None:
-                    prev_vein = prev_frame_outputs[vein_idx].get("pred_masks")
-                    if prev_vein is not None:
-                        prev_vein = prev_vein.to(vein_mask.device)
-
-                av_check = self.av_constraint.check_av_proximity(artery_mask, vein_mask)
-                if not av_check["valid"]:
-                    vein_mask = self.av_constraint.correct_vein_using_artery(
-                        vein_mask, artery_mask, prev_vein
                     )
 
-                artery_mask, vein_mask, _ = self.av_constraint.apply_single_vessel_rule(
-                    artery_mask, vein_mask
-                )
-                artery_mask, vein_mask = self.av_constraint.resolve_overlap(
-                    artery_mask, vein_mask
-                )
-
-                corrected_masks = {
-                    artery_idx: artery_mask,
-                    vein_idx: vein_mask,
-                }
-                for idx, corrected_mask in corrected_masks.items():
-                    if not torch.equal(pred_masks_per_obj[idx], corrected_mask):
-                        pred_masks_per_obj[idx] = corrected_mask
-                        frame_infos[idx]["pred_masks"] = corrected_mask
-                        self._sync_output_after_mask_update(
-                            inference_state=inference_state,
-                            frame_idx=frame_idx,
-                            current_out=frame_infos[idx]["current_out"],
-                            pred_masks_gpu=corrected_mask,
-                            rerun_mem_encoder=True,
-                        )
-
-            for obj_idx, info in enumerate(frame_infos):
-                current_out = info["current_out"]
-                obj_output_dict = info["obj_output_dict"]
-                storage_key = info["storage_key"]
-                obj_id = info["obj_id"]
-                pred_masks = info["pred_masks"]
-
-                # Always store memory (soft weight handles quality, never drop)
+                # Store the output
                 obj_output_dict[storage_key][frame_idx] = current_out
-
-                if "quality_info" in current_out:
-                    if obj_idx not in inference_state["quality_scores_per_obj"]:
-                        inference_state["quality_scores_per_obj"][obj_idx] = {}
-                    inference_state["quality_scores_per_obj"][obj_idx][frame_idx] = current_out["quality_info"]
-
-                prev_frame_outputs[obj_idx] = current_out
 
                 inference_state["frames_tracked_per_obj"][obj_idx][frame_idx] = {
                     "reverse": reverse
                 }
                 pred_masks_per_obj[obj_idx] = pred_masks
-
-                # SM: store in separate memory bank for cross-object reference
-                if inference_state.get("use_separate_memory") and inference_state.get("separate_memory_banks"):
-                    if current_out.get("maskmem_features") is not None:
-                        inference_state["separate_memory_banks"].store_output(
-                            obj_id=obj_id,
-                            frame_idx=frame_idx,
-                            output=current_out,
-                            is_cond=(storage_key == "cond_frame_outputs"),
-                        )
 
             # Resize the output mask to the original video resolution (we directly use
             # the mask scores on GPU for output to avoid any CPU conversion in between)
@@ -1061,12 +693,6 @@ class SAM2VideoPredictor(SAM2Base):
         inference_state["temp_output_dict_per_obj"].clear()
         inference_state["frames_tracked_per_obj"].clear()
 
-        # === Clear adaptive memory state ===
-        inference_state["prev_frame_outputs_per_obj"].clear()
-        inference_state["quality_scores_per_obj"].clear()
-        if inference_state.get("separate_memory_banks"):
-            inference_state["separate_memory_banks"].clear()
-
     def _reset_tracking_results(self, inference_state):
         """Reset all tracking inputs and results across the videos."""
         for v in inference_state["point_inputs_per_obj"].values():
@@ -1081,12 +707,6 @@ class SAM2VideoPredictor(SAM2Base):
             v["non_cond_frame_outputs"].clear()
         for v in inference_state["frames_tracked_per_obj"].values():
             v.clear()
-
-        # === Clear adaptive memory tracking ===
-        if "quality_scores_per_obj" in inference_state:
-            inference_state["quality_scores_per_obj"].clear()
-        if inference_state.get("separate_memory_banks"):
-            inference_state["separate_memory_banks"].clear()
 
     def _get_image_feature(self, inference_state, frame_idx, batch_size):
         """Compute the image features on a given frame."""
@@ -1121,57 +741,6 @@ class SAM2VideoPredictor(SAM2Base):
         features = (expanded_image,) + features
         return features
 
-    def _compute_memory_quality_score(
-        self,
-        inference_state,
-        current_mask: torch.Tensor,
-        prev_mask: Optional[torch.Tensor],
-        iou_pred: float,
-        obj_id: int,
-    ) -> Dict:
-        """
-        Compute quality score for the current frame to determine if it should be stored in memory.
-
-        Args:
-            inference_state: The inference state dictionary
-            current_mask: Current frame's predicted mask
-            prev_mask: Previous frame's predicted mask (None if first frame)
-            iou_pred: SAM's predicted IoU confidence score
-            obj_id: Object ID (1=artery, 2=vein)
-
-        Returns:
-            Dictionary containing quality metrics and should_store decision
-        """
-        if self.memory_quality_scorer is None:
-            # If adaptive memory is disabled, always store
-            return {
-                "quality_score": 1.0,
-                "should_store": True,
-                "iou_consistency": 1.0,
-                "area_ratio": 1.0,
-                "centroid_shift": 0.0,
-            }
-
-        if prev_mask is None:
-            # First frame: always store with high quality
-            return {
-                "quality_score": 1.0,
-                "should_store": True,
-                "iou_consistency": 1.0,
-                "area_ratio": 1.0,
-                "centroid_shift": 0.0,
-            }
-
-        # Compute quality score using the scorer
-        quality_info = self.memory_quality_scorer.compute_quality_score(
-            current_mask=current_mask,
-            prev_mask=prev_mask,
-            iou_pred=iou_pred,
-            obj_id=obj_id,
-        )
-
-        return quality_info
-
     def _run_single_frame_inference(
         self,
         inference_state,
@@ -1184,9 +753,6 @@ class SAM2VideoPredictor(SAM2Base):
         reverse,
         run_mem_encoder,
         prev_sam_mask_logits=None,
-        # === Adaptive memory parameters ===
-        obj_id=None,  # Object ID for quality scoring (1=artery, 2=vein)
-        prev_frame_output=None,  # Previous frame's output for quality computation
     ):
         """Run tracking on a single frame based on current inputs and previous memory."""
         # Retrieve correct image features
@@ -1234,43 +800,6 @@ class SAM2VideoPredictor(SAM2Base):
                 align_corners=False,
             )
 
-        # === Adaptive Memory Quality Scoring ===
-        quality_info = None
-        use_adaptive_memory = inference_state.get("use_adaptive_memory", False)
-        needs_quality_info = (
-            self.memory_quality_scorer is not None
-            and not is_init_cond_frame
-            and obj_id is not None
-        )
-
-        if needs_quality_info:
-            # Get previous frame's mask for comparison
-            prev_mask = None
-            if prev_frame_output is not None and "pred_masks" in prev_frame_output:
-                prev_mask = prev_frame_output["pred_masks"]
-                if prev_mask is not None:
-                    prev_mask = prev_mask.to(pred_masks_gpu.device)
-
-            # Estimate IoU from object_score_logits (sigmoid)
-            object_score_logits = current_out.get("object_score_logits")
-            if object_score_logits is not None:
-                iou_pred = torch.sigmoid(object_score_logits).max().item()
-            else:
-                iou_pred = 0.8  # default if not available
-
-            # Compute quality score
-            quality_info = self._compute_memory_quality_score(
-                inference_state=inference_state,
-                current_mask=pred_masks_gpu,
-                prev_mask=prev_mask,
-                iou_pred=iou_pred,
-                obj_id=obj_id,
-            )
-
-            # Soft weighting only: never drop memory, just scale by quality weight
-            # The weight is stored in compact_current_out and applied in sam2_base.py track_step
-
-        # Convert memory features to appropriate format
         if maskmem_features is not None:
             maskmem_features = maskmem_features.to(torch.bfloat16)
             maskmem_features = maskmem_features.to(storage_device, non_blocking=True)
@@ -1293,12 +822,6 @@ class SAM2VideoPredictor(SAM2Base):
             "obj_ptr": obj_ptr,
             "object_score_logits": object_score_logits,
         }
-
-        # Store quality information if available (for debugging/analysis)
-        if quality_info is not None:
-            compact_current_out["quality_score"] = quality_info["quality_score"]
-            compact_current_out["quality_info"] = quality_info
-            compact_current_out["memory_weight"] = quality_info.get("memory_weight")
 
         return compact_current_out, pred_masks_gpu
 

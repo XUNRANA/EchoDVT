@@ -586,20 +586,6 @@ class SAM2Base(torch.nn.Module):
                 # "maskmem_features" might have been offloaded to CPU in demo use cases,
                 # so we load it back to GPU (it's a no-op if it's already on GPU).
                 feats = prev["maskmem_features"].to(device, non_blocking=True)
-
-                # === Apply quality-based weighting to memory features ===
-                # If the frame has a quality score (from adaptive memory filtering),
-                # apply it as a weight to reduce the influence of low-quality memories
-                memory_weight = prev.get("memory_weight", None)
-                if memory_weight is None:
-                    quality_score = prev.get("quality_score", None)
-                    if quality_score is not None and quality_score < 1.0:
-                        # Apply quality weight (minimum 0.1 to avoid complete zeroing)
-                        weight = max(quality_score, 0.1)
-                        feats = feats * weight
-                else:
-                    feats = feats * float(memory_weight)
-
                 to_cat_memory.append(feats.flatten(2).permute(2, 0, 1))
                 # Spatial positional encoding (it might have been offloaded to CPU in eval)
                 maskmem_enc = prev["maskmem_pos_enc"][-1].to(device)
@@ -684,27 +670,6 @@ class SAM2Base(torch.nn.Module):
                 else:
                     num_obj_ptr_tokens = 0
 
-            # Cross-object memory (optional)
-            cross_outputs = output_dict.get("cross_obj_outputs", None)
-            if cross_outputs:
-                for cross_out in cross_outputs:
-                    if cross_out is None:
-                        continue
-                    if cross_out.get("maskmem_features") is None:
-                        continue
-                    feats = cross_out["maskmem_features"].to(device, non_blocking=True)
-                    cross_weight = cross_out.get("memory_weight", None)
-                    if cross_weight is None:
-                        cross_weight = cross_out.get("quality_score", None)
-                    if cross_weight is not None:
-                        feats = feats * float(cross_weight)
-                    to_cat_memory.append(feats.flatten(2).permute(2, 0, 1))
-                    maskmem_enc = cross_out["maskmem_pos_enc"][-1].to(device)
-                    maskmem_enc = maskmem_enc.flatten(2).permute(2, 0, 1)
-                    maskmem_enc = (
-                        maskmem_enc + self.maskmem_tpos_enc[self.num_maskmem - 1]
-                    )
-                    to_cat_memory_pos_embed.append(maskmem_enc)
         else:
             # for initial conditioning frames, encode them without using any previous memory
             if self.directly_add_no_mem_embed:
