@@ -4,5 +4,5 @@ yolo/runs/
 yolo/predictions/
 sam2/predictions/
 *.pt
-
+__pycache__/
 checkpoints/
