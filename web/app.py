@@ -133,6 +133,11 @@ def main():
         css=css,
         theme=theme,
         max_file_size="2gb",      # ★ 允许上传最大 2GB 的视频文件
+        allowed_paths=[           # ★ 允许 Gradio 从这些路径提供文件
+            str(PROJECT_ROOT),
+            "/tmp",
+            "/data1/ouyangxinglong",
+        ],
     )
 
 
