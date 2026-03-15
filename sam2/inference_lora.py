@@ -83,6 +83,10 @@ class LoRASAM2VideoSegmenter:
         lora_alpha: float = 1.0,
         lora_memory_attention: bool = True,
         lora_memory_encoder: bool = False,
+        use_adaptive_memory: bool = False,
+        use_separate_memory: bool = False,
+        use_av_constraint: bool = False,
+        av_prior_stats_path: str = None,
     ) -> None:
         # 构建 LoRA 模型（推理模式, 不用 trainer）
         self.lora_model = build_lora_sam2_video(
@@ -94,7 +98,11 @@ class LoRASAM2VideoSegmenter:
             apply_to_image_encoder=True,
             apply_to_memory_attention=lora_memory_attention,
             apply_to_memory_encoder=lora_memory_encoder,
-            use_trainer=False,  # 推理不需要 trainer
+            use_trainer=False,
+            use_adaptive_memory=use_adaptive_memory,
+            use_separate_memory=use_separate_memory,
+            use_av_constraint=use_av_constraint,
+            av_prior_stats_path=av_prior_stats_path,
         )
 
         # 加载 LoRA 权重
@@ -265,6 +273,9 @@ def run(args: argparse.Namespace) -> None:
     run_name = (
         f"{args.split}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         f"_lora_r{args.lora_r}"
+        f"_am{int(args.use_adaptive_memory)}"
+        f"_sm{int(args.use_separate_memory)}"
+        f"_av{int(args.use_av_constraint)}"
     )
     run_dir = output_root / run_name
     vis_root = run_dir / "visualizations"
@@ -288,7 +299,9 @@ def run(args: argparse.Namespace) -> None:
     logger.log(f"LoRA rank: {args.lora_r}, alpha: {args.lora_alpha}")
     logger.log(f"LoRA memory_attention: {args.lora_memory_attention}")
     logger.log(f"LoRA memory_encoder: {args.lora_memory_encoder}")
-    logger.log("AM/SM/AV: all OFF (pure LoRA)")
+    logger.log(
+        f"AM={args.use_adaptive_memory}, SM={args.use_separate_memory}, AV={args.use_av_constraint}"
+    )
     logger.log(
         f"Mask thresh: artery={artery_thresh:.3f}, vein={vein_thresh:.3f}, "
         f"postprocess={args.postprocess_mode}"
@@ -319,6 +332,10 @@ def run(args: argparse.Namespace) -> None:
         lora_alpha=args.lora_alpha,
         lora_memory_attention=args.lora_memory_attention,
         lora_memory_encoder=args.lora_memory_encoder,
+        use_adaptive_memory=args.use_adaptive_memory,
+        use_separate_memory=args.use_separate_memory,
+        use_av_constraint=args.use_av_constraint,
+        av_prior_stats_path=str(yolo_prior_path),
     )
 
     # ── 遍历 case ──
@@ -514,9 +531,9 @@ def run(args: argparse.Namespace) -> None:
                 "lora_memory_attention": args.lora_memory_attention,
                 "lora_memory_encoder": args.lora_memory_encoder,
                 "yolo_model": str(yolo_model_path),
-                "use_adaptive_memory": False,
-                "use_separate_memory": False,
-                "use_av_constraint": False,
+                "use_adaptive_memory": args.use_adaptive_memory,
+                "use_separate_memory": args.use_separate_memory,
+                "use_av_constraint": args.use_av_constraint,
             },
             f,
             ensure_ascii=False,
@@ -580,6 +597,14 @@ def build_parser() -> argparse.ArgumentParser:
                         help="是否对 memory_attention 使用 LoRA (需和训练一致)")
     parser.add_argument("--lora-memory-encoder", type=str2bool, default=False,
                         help="是否解冻 memory_encoder (需和训练一致)")
+
+    # AM/SM/AV train-free modules
+    parser.add_argument("--use-adaptive-memory", type=str2bool, default=False,
+                        help="启用自适应记忆筛选 (软权重)")
+    parser.add_argument("--use-separate-memory", type=str2bool, default=False,
+                        help="启用分离式记忆库 (跨物体记忆)")
+    parser.add_argument("--use-av-constraint", type=str2bool, default=False,
+                        help="启用动静脉位置约束")
 
     return parser
 

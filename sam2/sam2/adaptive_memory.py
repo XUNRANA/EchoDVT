@@ -40,48 +40,35 @@ class MemoryQualityScorer:
     DEFAULT_CONFIG = {
         "artery": {  # obj_id = 1
             "weights": {
-                "iou_pred": 0.45,
-                "iou_consistency": 0.35,
-                "area_stability": 0.10,
-                "centroid_stability": 0.10,
+                "iou_pred": 0.10,          # 降低 (object_score_logits ≠ IoU，信号不可靠)
+                "iou_consistency": 0.45,    # 提高 (帧间mask IoU，最可靠的信号)
+                "area_stability": 0.25,     # 提高
+                "centroid_stability": 0.20, # 提高
             },
-            "threshold": 0.52,
-            "min_weight": 0.35,
+            "threshold": 0.0,    # 不做硬过滤，仅用于 weight 计算
+            "min_weight": 0.3,   # 最低权重（永远保留记忆）
             "weight_power": 1.5,
             "cross_obj_weight": 0.0,
-            "cross_max_time_diff": 3,
-            "refresh_interval": 0,
-            "refresh_weight": 0.5,
-            "time_decay": 0.0,
-            "topk_memory": 0,
+            "cross_max_time_diff": 5,
             "bank_topk_memory": 6,
             "bank_quality_weight": 0.35,
-            "bank_min_quality": 0.40,
+            "bank_min_quality": 0.0,
         },
         "vein": {  # obj_id = 2
             "weights": {
-                "iou_pred": 0.45,
-                "iou_consistency": 0.35,
-                "area_stability": 0.10,
-                "centroid_stability": 0.10,
+                "iou_pred": 0.10,
+                "iou_consistency": 0.45,
+                "area_stability": 0.25,
+                "centroid_stability": 0.20,
             },
-            "threshold": 0.56,
-            "min_weight": 0.25,
-            "weight_power": 1.4,
-            "cross_obj_weight": 0.0,
-            "cross_max_time_diff": 3,
-            "refresh_interval": 4,
-            "refresh_weight": 0.55,
-            "collapse_quality_threshold": 0.35,
-            "collapse_area_ratio_threshold": 0.05,
-            "collapse_min_area": 12,
-            "reopen_weight": 0.65,
-            "collapse_reinit": False,
-            "time_decay": 0.0,
-            "topk_memory": 8,
+            "threshold": 0.0,    # 不做硬过滤
+            "min_weight": 0.2,   # 静脉最低权重
+            "weight_power": 1.5,
+            "cross_obj_weight": 0.15,   # 启用跨物体记忆（静脉参考动脉位置）
+            "cross_max_time_diff": 30,  # 扩大跨物体时间窗口
             "bank_topk_memory": 6,
-            "bank_quality_weight": 0.65,
-            "bank_min_quality": 0.30,
+            "bank_quality_weight": 0.5,
+            "bank_min_quality": 0.0,
         },
     }
 
@@ -365,8 +352,13 @@ class SeparateMemoryBank:
 
         cross_memories = []
 
-        # Collect outputs from conditioning frames within time range
+        # Collect outputs from conditioning frames (always include)
         for t, out in other_bank["cond_frame_outputs"].items():
+            if abs(t - frame_idx) <= max_time_diff:
+                cross_memories.append((t, out))
+
+        # Also collect from non-conditioning frames within time range
+        for t, out in other_bank["non_cond_frame_outputs"].items():
             if abs(t - frame_idx) <= max_time_diff:
                 cross_memories.append((t, out))
 
@@ -452,11 +444,11 @@ def build_av_constraint_config_from_priors(prior_stats: Optional[Dict]) -> Dict:
     cy_p5 = _get_stat(prior_stats, "artery2vein", "cy_offset", "p5", 0.05)
     cy_p95 = _get_stat(prior_stats, "artery2vein", "cy_offset", "p95", 0.28)
 
-    max_horizontal_offset = min(0.40, max(abs(cx_p5), abs(cx_p95)) * 1.15 + 0.02)
+    max_horizontal_offset = min(0.30, max(abs(cx_p5), abs(cx_p95)) * 1.05 + 0.01)
     min_vertical_offset = max(0.0, cy_p5 * 0.5)
-    max_vertical_offset = min(0.45, cy_p95 * 1.15 + 0.03)
+    max_vertical_offset = min(0.35, cy_p95 * 1.05 + 0.02)
     max_av_distance = min(
-        0.45,
+        0.35,
         (max_horizontal_offset**2 + max_vertical_offset**2) ** 0.5,
     )
 
@@ -465,13 +457,12 @@ def build_av_constraint_config_from_priors(prior_stats: Optional[Dict]) -> Dict:
         "max_horizontal_offset": max_horizontal_offset,
         "min_vertical_offset": min_vertical_offset,
         "max_vertical_offset": max_vertical_offset,
-        "max_artery_area_change": 0.40,
-        "max_vein_area_change": 3.50,
-        "max_centroid_shift": max(0.18, min(0.25, max_vertical_offset * 0.70)),
+        "max_artery_area_change": 0.35,
+        "max_vein_area_change": 3.0,
+        "max_centroid_shift": max(0.15, min(0.22, max_vertical_offset * 0.65)),
         "min_mask_area": 20,
-        "enable_single_vessel_rule": False,
-        "fallback_alpha": 0.60,
-        "artery_quality_threshold": 0.70,
+        "enable_single_vessel_rule": True,
+        "fallback_alpha": 0.50,
     }
 
 
@@ -489,17 +480,16 @@ class ArteryVeinConstraint:
     def __init__(
         self,
         # 基于GT统计的参数
-        max_av_distance: float = 0.264,      # 动静脉最大归一化距离 (99%分位)
-        max_artery_area_change: float = 0.3, # 动脉面积变化上限 (动脉稳定)
-        max_vein_area_change: float = 2.5,   # 静脉面积变化上限 (可大幅变化)
+        max_av_distance: float = 0.20,       # 动静脉最大归一化距离 (收紧)
+        max_artery_area_change: float = 0.35,# 动脉面积变化上限
+        max_vein_area_change: float = 3.0,   # 静脉面积变化上限 (可大幅变化)
         max_centroid_shift: float = 0.15,    # 单帧质心位移上限
-        min_mask_area: int = 50,             # 最小有效面积
-        max_horizontal_offset: float = 0.30,
+        min_mask_area: int = 20,             # 最小有效面积 (降低)
+        max_horizontal_offset: float = 0.22, # 收紧
         min_vertical_offset: float = 0.0,
-        max_vertical_offset: float = 0.35,
-        enable_single_vessel_rule: bool = False,
-        fallback_alpha: float = 0.70,
-        artery_quality_threshold: float = 0.80,
+        max_vertical_offset: float = 0.30,   # 收紧
+        enable_single_vessel_rule: bool = True,  # 启用单血管规则
+        fallback_alpha: float = 0.50,        # 更柔和的修正
     ):
         self.max_av_distance = max_av_distance
         self.max_artery_area_change = max_artery_area_change
@@ -511,7 +501,6 @@ class ArteryVeinConstraint:
         self.max_vertical_offset = max_vertical_offset
         self.enable_single_vessel_rule = enable_single_vessel_rule
         self.fallback_alpha = fallback_alpha
-        self.artery_quality_threshold = artery_quality_threshold
 
     def compute_centroid(self, mask: torch.Tensor) -> Optional[torch.Tensor]:
         """计算mask质心"""

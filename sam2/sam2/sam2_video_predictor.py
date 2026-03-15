@@ -851,20 +851,14 @@ class SAM2VideoPredictor(SAM2Base):
 
         # Initialize previous frame outputs for adaptive memory (per object)
         prev_frame_outputs = [None] * batch_size
-        last_vein_stored_frame = None
-        vein_in_collapse = False
 
         for frame_idx in tqdm(processing_order, desc="propagate in video"):
             pred_masks_per_obj = [None] * batch_size
             frame_infos = [None] * batch_size
-            skip_av_for_frame = False
 
             for obj_idx in range(batch_size):
                 obj_output_dict = inference_state["output_dict_per_obj"][obj_idx]
                 obj_id = self._obj_idx_to_id(inference_state, obj_idx)
-                should_store = True
-                refresh_override = False
-                current_skip_av = False
 
                 # We skip those frames already in consolidated outputs (these are frames
                 # that received input clicks or mask). Note that we cannot directly run
@@ -902,69 +896,8 @@ class SAM2VideoPredictor(SAM2Base):
                         obj_id=obj_id,
                         prev_frame_output=prev_frame_outputs[obj_idx],
                     )
-                    if (
-                        inference_state.get("use_adaptive_memory", False)
-                        and "quality_info" in current_out
-                    ):
-                        should_store = current_out["quality_info"].get("should_store", True)
-
-                    if (
-                        inference_state.get("use_adaptive_memory", False)
-                        and obj_id == 2
-                        and self._memory_quality_config is not None
-                    ):
-                        vein_cfg = self._memory_quality_config.get("vein", {})
-                        collapse_quality_thr = vein_cfg.get("collapse_quality_threshold", 0.55)
-                        collapse_area_ratio_thr = vein_cfg.get("collapse_area_ratio_threshold", 0.2)
-                        collapse_min_area = vein_cfg.get("collapse_min_area", 30)
-                        reopen_weight = vein_cfg.get("reopen_weight", 0.3)
-                        collapse_reinit = vein_cfg.get("collapse_reinit", True)
-
-                        if "quality_info" in current_out:
-                            quality_score = current_out["quality_info"].get("quality_score", 1.0)
-                            area_ratio = current_out["quality_info"].get("area_ratio", 1.0)
-                            if quality_score < collapse_quality_thr and area_ratio < collapse_area_ratio_thr:
-                                vein_in_collapse = True
-                                should_store = False
-                                current_skip_av = True
-                                if collapse_reinit:
-                                    obj_output_dict["non_cond_frame_outputs"].clear()
-                                    last_vein_stored_frame = None
-                                    if (
-                                        inference_state.get("separate_memory_banks")
-                                        and "vein"
-                                        in inference_state["separate_memory_banks"].memory_banks
-                                    ):
-                                        inference_state["separate_memory_banks"].memory_banks[
-                                            "vein"
-                                        ]["non_cond_frame_outputs"].clear()
-                            elif vein_in_collapse and current_out.get("maskmem_features") is not None:
-                                self._combine_memory_weight(current_out, reopen_weight)
-                                should_store = True
-                                refresh_override = True
-                                vein_in_collapse = False
-
-                        if current_out.get("pred_masks") is not None:
-                            mask_area = (current_out["pred_masks"] > 0).float().sum().item()
-                            if mask_area < collapse_min_area:
-                                should_store = False
-                                current_skip_av = True
-
-                        refresh_interval = vein_cfg.get("refresh_interval", 0)
-                        if refresh_interval and last_vein_stored_frame is not None:
-                            if (frame_idx - last_vein_stored_frame) >= refresh_interval:
-                                if current_out.get("maskmem_features") is not None:
-                                    refresh_weight = vein_cfg.get("refresh_weight", 0.2)
-                                    self._combine_memory_weight(current_out, refresh_weight)
-                                    should_store = True
-                                    refresh_override = True
-
-                        if should_store and last_vein_stored_frame is not None:
-                            time_decay = vein_cfg.get("time_decay", 0.0)
-                            if time_decay:
-                                age = frame_idx - last_vein_stored_frame
-                                decay = max(0.0, 1.0 - time_decay * age)
-                                self._combine_memory_weight(current_out, decay)
+                    # AM: quality score is stored in compact_current_out["memory_weight"]
+                    # and applied as soft weight in sam2_base.py track_step (never drop memory)
 
                 frame_infos[obj_idx] = {
                     "obj_id": obj_id,
@@ -972,11 +905,8 @@ class SAM2VideoPredictor(SAM2Base):
                     "storage_key": storage_key,
                     "current_out": current_out,
                     "pred_masks": pred_masks,
-                    "should_store": should_store,
-                    "refresh_override": refresh_override,
                 }
                 pred_masks_per_obj[obj_idx] = pred_masks
-                skip_av_for_frame = skip_av_for_frame or current_skip_av
 
             artery_idx = next(
                 (idx for idx, info in enumerate(frame_infos) if info is not None and info["obj_id"] == 1),
@@ -986,6 +916,7 @@ class SAM2VideoPredictor(SAM2Base):
                 (idx for idx, info in enumerate(frame_infos) if info is not None and info["obj_id"] == 2),
                 None,
             )
+            # AV constraint: always apply when enabled (no quality gating)
             if (
                 self.av_constraint is not None
                 and artery_idx is not None
@@ -993,122 +924,68 @@ class SAM2VideoPredictor(SAM2Base):
                 and pred_masks_per_obj[artery_idx] is not None
                 and pred_masks_per_obj[vein_idx] is not None
             ):
-                artery_quality = None
-                artery_out = frame_infos[artery_idx]["current_out"]
-                if artery_out is not None:
-                    artery_quality = self._get_output_quality_score(
-                        artery_out, default=None
-                    )
-                if artery_quality is None and prev_frame_outputs[artery_idx] is not None:
-                    artery_quality = self._get_output_quality_score(
-                        prev_frame_outputs[artery_idx], default=1.0
+                artery_mask = pred_masks_per_obj[artery_idx]
+                vein_mask = pred_masks_per_obj[vein_idx]
+                prev_vein = None
+                if prev_frame_outputs[vein_idx] is not None:
+                    prev_vein = prev_frame_outputs[vein_idx].get("pred_masks")
+                    if prev_vein is not None:
+                        prev_vein = prev_vein.to(vein_mask.device)
+
+                av_check = self.av_constraint.check_av_proximity(artery_mask, vein_mask)
+                if not av_check["valid"]:
+                    vein_mask = self.av_constraint.correct_vein_using_artery(
+                        vein_mask, artery_mask, prev_vein
                     )
 
-                apply_av = (
-                    not skip_av_for_frame
-                    and artery_quality is not None
-                    and artery_quality >= self.av_constraint.artery_quality_threshold
+                artery_mask, vein_mask, _ = self.av_constraint.apply_single_vessel_rule(
+                    artery_mask, vein_mask
+                )
+                artery_mask, vein_mask = self.av_constraint.resolve_overlap(
+                    artery_mask, vein_mask
                 )
 
-                if apply_av:
-                    artery_mask = pred_masks_per_obj[artery_idx]
-                    vein_mask = pred_masks_per_obj[vein_idx]
-                    prev_vein = None
-                    if prev_frame_outputs[vein_idx] is not None:
-                        prev_vein = prev_frame_outputs[vein_idx].get("pred_masks")
-                        if prev_vein is not None:
-                            prev_vein = prev_vein.to(vein_mask.device)
-
-                    av_check = self.av_constraint.check_av_proximity(artery_mask, vein_mask)
-                    if not av_check["valid"]:
-                        vein_mask = self.av_constraint.correct_vein_using_artery(
-                            vein_mask, artery_mask, prev_vein
+                corrected_masks = {
+                    artery_idx: artery_mask,
+                    vein_idx: vein_mask,
+                }
+                for idx, corrected_mask in corrected_masks.items():
+                    if not torch.equal(pred_masks_per_obj[idx], corrected_mask):
+                        pred_masks_per_obj[idx] = corrected_mask
+                        frame_infos[idx]["pred_masks"] = corrected_mask
+                        self._sync_output_after_mask_update(
+                            inference_state=inference_state,
+                            frame_idx=frame_idx,
+                            current_out=frame_infos[idx]["current_out"],
+                            pred_masks_gpu=corrected_mask,
+                            rerun_mem_encoder=True,
                         )
-
-                    artery_mask, vein_mask, _ = self.av_constraint.apply_single_vessel_rule(
-                        artery_mask, vein_mask
-                    )
-                    artery_mask, vein_mask = self.av_constraint.resolve_overlap(
-                        artery_mask, vein_mask
-                    )
-
-                    corrected_masks = {
-                        artery_idx: artery_mask,
-                        vein_idx: vein_mask,
-                    }
-                    for idx, corrected_mask in corrected_masks.items():
-                        if not torch.equal(pred_masks_per_obj[idx], corrected_mask):
-                            pred_masks_per_obj[idx] = corrected_mask
-                            frame_infos[idx]["pred_masks"] = corrected_mask
-                            self._sync_output_after_mask_update(
-                                inference_state=inference_state,
-                                frame_idx=frame_idx,
-                                current_out=frame_infos[idx]["current_out"],
-                                pred_masks_gpu=corrected_mask,
-                                rerun_mem_encoder=frame_infos[idx]["should_store"],
-                            )
 
             for obj_idx, info in enumerate(frame_infos):
                 current_out = info["current_out"]
                 obj_output_dict = info["obj_output_dict"]
                 storage_key = info["storage_key"]
                 obj_id = info["obj_id"]
-                should_store = info["should_store"]
-                refresh_override = info["refresh_override"]
                 pred_masks = info["pred_masks"]
 
-                if should_store:
-                    obj_output_dict[storage_key][frame_idx] = current_out
-                    if obj_id == 2 and (refresh_override or current_out.get("maskmem_features") is not None):
-                        last_vein_stored_frame = frame_idx
-                    if (
-                        inference_state.get("use_adaptive_memory", False)
-                        and obj_id == 2
-                        and self._memory_quality_config is not None
-                    ):
-                        vein_cfg = self._memory_quality_config.get("vein", {})
-                        topk = vein_cfg.get("topk_memory", 0)
-                        if topk and storage_key == "non_cond_frame_outputs":
-                            items = list(obj_output_dict[storage_key].items())
-                            if len(items) > topk:
-                                items.sort(
-                                    key=lambda kv: kv[1].get(
-                                        "quality_score",
-                                        kv[1].get("quality_info", {}).get("quality_score", 0.0),
-                                    )
-                                )
-                                to_drop = items[: len(items) - topk]
-                                for k, _ in to_drop:
-                                    obj_output_dict[storage_key].pop(k, None)
-                                    if (
-                                        inference_state.get("separate_memory_banks")
-                                        and "vein"
-                                        in inference_state["separate_memory_banks"].memory_banks
-                                    ):
-                                        inference_state["separate_memory_banks"].memory_banks[
-                                            "vein"
-                                        ]["non_cond_frame_outputs"].pop(k, None)
+                # Always store memory (soft weight handles quality, never drop)
+                obj_output_dict[storage_key][frame_idx] = current_out
 
                 if "quality_info" in current_out:
                     if obj_idx not in inference_state["quality_scores_per_obj"]:
                         inference_state["quality_scores_per_obj"][obj_idx] = {}
                     inference_state["quality_scores_per_obj"][obj_idx][frame_idx] = current_out["quality_info"]
 
-                if (
-                    current_out.get("quality_info") is None
-                    or current_out["quality_info"].get("should_store", True)
-                    or should_store
-                ):
-                    prev_frame_outputs[obj_idx] = current_out
+                prev_frame_outputs[obj_idx] = current_out
 
                 inference_state["frames_tracked_per_obj"][obj_idx][frame_idx] = {
                     "reverse": reverse
                 }
                 pred_masks_per_obj[obj_idx] = pred_masks
 
+                # SM: store in separate memory bank for cross-object reference
                 if inference_state.get("use_separate_memory") and inference_state.get("separate_memory_banks"):
-                    should_store_in_bank = should_store and current_out.get("maskmem_features") is not None
-                    if should_store_in_bank:
+                    if current_out.get("maskmem_features") is not None:
                         inference_state["separate_memory_banks"].store_output(
                             obj_id=obj_id,
                             frame_idx=frame_idx,
@@ -1390,15 +1267,8 @@ class SAM2VideoPredictor(SAM2Base):
                 obj_id=obj_id,
             )
 
-            # If quality is too low, nullify the memory features to skip storing
-            if (
-                use_adaptive_memory
-                and not quality_info["should_store"]
-                and maskmem_features is not None
-            ):
-                # Drop low-quality memory entirely to prevent error accumulation
-                maskmem_features = None
-                current_out["maskmem_features"] = None
+            # Soft weighting only: never drop memory, just scale by quality weight
+            # The weight is stored in compact_current_out and applied in sam2_base.py track_step
 
         # Convert memory features to appropriate format
         if maskmem_features is not None:
