@@ -547,6 +547,7 @@ class SAM2Base(torch.nn.Module):
                 # We also allow taking the memory frame non-consecutively (with stride>1), in which case
                 # we take (self.num_maskmem - 2) frames among every stride-th frames plus the last frame.
                 stride = 1 if self.training else self.memory_temporal_stride_for_eval
+                _okm_selected_idxs = set()  # OKM: track selected frame indices
                 for t_pos in range(1, self.num_maskmem):
                     t_rel = self.num_maskmem - t_pos  # how many frames before current frame
                     if t_rel == 1:
@@ -576,7 +577,27 @@ class SAM2Base(torch.nn.Module):
                         # If an unselected conditioning frame is among the last (self.num_maskmem - 1)
                         # frames, we still attend to it as if it's a non-conditioning frame.
                         out = unselected_cond_outputs.get(prev_frame_idx, None)
+                    if out is not None:
+                        _okm_selected_idxs.add(prev_frame_idx)
                     t_pos_and_prevs.append((t_pos, out))
+
+                # OKM (Object-Aware Keyframe Memory): if the best keyframe for
+                # this object is outside the stride-selected window, inject it
+                # by replacing the oldest memory slot (t_pos=1).  Ensures the
+                # model retains a reference even after the object disappears
+                # (e.g. vein collapse during compression ultrasound).
+                _okm_kf = getattr(self, '_okm_current_keyframe', None)
+                if _okm_kf is not None:
+                    if _okm_kf not in (set(cond_outputs.keys()) | _okm_selected_idxs):
+                        _kf_out = output_dict["non_cond_frame_outputs"].get(_okm_kf)
+                        if _kf_out is None:
+                            _kf_out = unselected_cond_outputs.get(_okm_kf)
+                        if (_kf_out is not None
+                                and _kf_out.get("maskmem_features") is not None):
+                            for _i in range(len(t_pos_and_prevs)):
+                                if t_pos_and_prevs[_i][0] == 1:  # oldest slot
+                                    t_pos_and_prevs[_i] = (1, _kf_out)
+                                    break
 
             for t_pos, prev in t_pos_and_prevs:
                 if prev is None:

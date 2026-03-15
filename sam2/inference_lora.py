@@ -63,8 +63,8 @@ from inference_box_prompt_large import (
 # ── LoRA SAM2 构建 ──
 from sam2.lora_sam2 import LoRA_SAM2_Video, build_lora_sam2_video
 
-# ── 多帧提示模块 ──
-from sam2.postprocess import MultiFramePrompter
+# ── 外部增强模块 ──
+from sam2.postprocess import MultiFramePrompter, RelativePositionAnchor
 
 
 class LoRASAM2VideoSegmenter:
@@ -293,9 +293,22 @@ def run(args: argparse.Namespace) -> None:
         raise FileNotFoundError(f"LoRA 权重不存在: {lora_weights}")
 
     output_root = Path(args.output_root).resolve()
-    # MFP flag
+    # Module flags
     use_mfp = args.multi_frame_prompt
-    v2_tag = f"_mfp{args.mfp_interval}" if use_mfp else "_baseline"
+    use_okm = args.okm
+    use_dam = args.dam
+    use_rpa = args.rpa
+    v2_tag = ""
+    if use_mfp:
+        v2_tag += f"_mfp{args.mfp_interval}"
+    if use_okm:
+        v2_tag += "_okm"
+    if use_dam:
+        v2_tag += "_dam"
+    if use_rpa:
+        v2_tag += "_rpa"
+    if not v2_tag:
+        v2_tag = "_baseline"
     run_name = (
         f"{args.split}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         f"_lora_r{args.lora_r}"
@@ -324,7 +337,7 @@ def run(args: argparse.Namespace) -> None:
     logger.log(f"LoRA memory_attention: {args.lora_memory_attention}")
     logger.log(f"LoRA memory_encoder: {args.lora_memory_encoder}")
     logger.log(
-        f"MultiFramePrompt={use_mfp} (interval={args.mfp_interval})"
+        f"MFP={use_mfp} (interval={args.mfp_interval}), OKM={use_okm}, DAM={use_dam}, RPA={use_rpa}"
     )
     logger.log(
         f"Mask thresh: artery={artery_thresh:.3f}, vein={vein_thresh:.3f}, "
@@ -358,12 +371,24 @@ def run(args: argparse.Namespace) -> None:
         lora_memory_encoder=args.lora_memory_encoder,
     )
 
+    # OKM: enable keyframe memory on predictor
+    if use_okm:
+        segmenter.predictor.use_okm = True
+    # DAM: enable disappearance-aware memory encoding
+    if use_dam:
+        segmenter.predictor.use_dam = True
+
     # ── 多帧提示模块 ──
     multi_frame_prompter = MultiFramePrompter(
         interval=args.mfp_interval,
         min_conf=args.mfp_min_conf,
         max_prompts=args.mfp_max_prompts,
     ) if use_mfp else None
+
+    # RPA: relative position anchoring (post-processing)
+    rpa = RelativePositionAnchor(
+        max_drift=args.rpa_max_drift,
+    ) if use_rpa else None
 
     # ── 遍历 case ──
     case_dirs = sorted([p for p in split_dir.iterdir() if p.is_dir()])
@@ -448,6 +473,10 @@ def run(args: argparse.Namespace) -> None:
             morph_kernel=args.morph_kernel,
             extra_prompt_frames=extra_prompt_frames,
         )
+
+        # RPA: suppress drifted vein masks based on artery-vein spatial relationship
+        if rpa is not None:
+            pred_masks_by_idx = rpa.anchor(pred_masks_by_idx)
 
         # 评估 + 可视化
         case_metrics: List[Dict[str, float]] = []
@@ -576,6 +605,9 @@ def run(args: argparse.Namespace) -> None:
                 "yolo_model": str(yolo_model_path),
                 "multi_frame_prompt": use_mfp,
                 "mfp_interval": args.mfp_interval if use_mfp else None,
+                "okm": use_okm,
+                "dam": use_dam,
+                "rpa": use_rpa,
             },
             f,
             ensure_ascii=False,
@@ -649,6 +681,20 @@ def build_parser() -> argparse.ArgumentParser:
                         help="多帧prompt最低YOLO置信度")
     parser.add_argument("--mfp-max-prompts", type=int, default=5,
                         help="最多添加多少个额外prompt帧")
+
+    # OKM (Object-Aware Keyframe Memory, modifies SAM2 memory selection)
+    parser.add_argument("--okm", type=str2bool, default=False,
+                        help="关键帧记忆: 保留每个目标最佳帧在记忆bank中")
+
+    # DAM (Disappearance-Aware Memory, prevents empty masks from polluting memory)
+    parser.add_argument("--dam", type=str2bool, default=False,
+                        help="消失感知记忆: 目标消失时复用上一好帧的记忆编码")
+
+    # RPA (Relative Position Anchoring, suppresses drifted vein masks)
+    parser.add_argument("--rpa", type=str2bool, default=False,
+                        help="相对位置锚定: 用动脉位置抑制漂移的静脉mask")
+    parser.add_argument("--rpa-max-drift", type=float, default=0.15,
+                        help="RPA最大允许偏移 (归一化到图像对角线)")
 
     return parser
 
