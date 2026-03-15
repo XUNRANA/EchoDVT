@@ -1,8 +1,8 @@
 """
 模块 4: DVT 诊断结果
-- 基于静脉面积变化率的二分类判断
+- 基于 19 维时序特征的智能诊断
 - 面积变化曲线可视化
-- 诊断结果展示
+- 诊断结果展示（含关键特征表）
 """
 
 import gradio as gr
@@ -17,9 +17,10 @@ from web.utils.metrics import compute_dvt_diagnosis
 
 
 def _run_diagnosis(state: dict, threshold: float):
-    """执行 DVT 诊断"""
+    """执行 DVT 诊断（支持完整特征提取）"""
     vein_areas = state.get("vein_areas", [])
     artery_areas = state.get("artery_areas", [])
+    pred_masks = state.get("pred_masks")
 
     if not vein_areas:
         return (
@@ -28,8 +29,43 @@ def _run_diagnosis(state: dict, threshold: float):
             "等待分割结果...",
         )
 
-    # DVT 诊断
+    # 尝试使用 InferenceService 进行完整 19 维特征提取
+    full_features = None
+    ml_result = None
+    if pred_masks:
+        try:
+            from web.services import InferenceService
+            # 收集所有帧的 semantic mask（按帧序排列）
+            num_frames = len(state.get("frame_files", []))
+            masks_list = []
+            for i in range(num_frames):
+                entry = pred_masks.get(i)
+                if entry is not None:
+                    masks_list.append(entry["semantic"])
+                else:
+                    # 用零 mask 填充缺失帧
+                    if masks_list:
+                        masks_list.append(np.zeros_like(masks_list[-1]))
+                    else:
+                        masks_list.append(np.zeros((256, 256), dtype=np.uint8))
+
+            ml_result = InferenceService.get().run_diagnosis(masks_list)
+            full_features = ml_result.get("features")
+        except Exception:
+            pass
+
+    # 兜底：简单 VCR 阈值诊断
     result = compute_dvt_diagnosis(vein_areas, threshold=threshold)
+
+    # 如果 ML 诊断可用，覆盖部分结果
+    if ml_result is not None:
+        result["is_dvt"] = ml_result["is_dvt"]
+        result["confidence"] = ml_result["confidence"]
+        result["ml_threshold"] = ml_result["threshold"]
+        if ml_result["is_dvt"]:
+            result["diagnosis"] = "⚠️ DVT 疑似（静脉拒绝塌陷）"
+        else:
+            result["diagnosis"] = "✅ 正常（静脉正常塌陷）"
 
     # 生成面积曲线图
     import matplotlib
@@ -87,34 +123,58 @@ def _run_diagnosis(state: dict, threshold: float):
     plt.tight_layout()
 
     # 诊断报告
-    report = _format_diagnosis_report(result, len(vein_areas))
+    report = _format_diagnosis_report(result, len(vein_areas), full_features)
 
     return report, fig, _diagnosis_summary_html(result)
 
 
-def _format_diagnosis_report(result: dict, n_frames: int) -> str:
-    """格式化诊断报告"""
-    lines = [f"### 🩺 DVT 诊断报告\n"]
+def _format_diagnosis_report(result: dict, n_frames: int, features: dict = None) -> str:
+    """格式化诊断报告（含完整特征表）"""
+    lines = ["### 🩺 DVT 诊断报告\n"]
 
     if result["is_dvt"] is None:
         lines.append(f"**状态**: {result['diagnosis']}")
         return "\n".join(lines)
 
     lines.append(f"**诊断结果**: {result['diagnosis']}\n")
-    lines.append("| 指标 | 值 |")
-    lines.append("|------|------|")
-    lines.append(f"| 面积变化率 (min/max) | {result['area_ratio']:.4f} |")
-    lines.append(f"| 面积缩减百分比 | {result['area_change_percent']:.1f}% |")
-    lines.append(f"| 静脉最小面积 | {result['min_area']} px |")
-    lines.append(f"| 静脉最大面积 | {result['max_area']} px |")
-    lines.append(f"| 判断阈值 | {result['threshold']:.2f} |")
-    lines.append(f"| 置信度 | {result['confidence']:.2f} |")
-    lines.append(f"| 分析帧数 | {n_frames} |")
+
+    # 关键指标表
+    lines.append("#### 关键指标\n")
+    lines.append("| 指标 | 值 | 说明 |")
+    lines.append("|------|------|------|")
+
+    if features:
+        lines.append(f"| **VCR** (静脉压缩比) | {features.get('vcr', 0):.4f} | min/max，越小越正常 |")
+        lines.append(f"| **VDR** (静脉消失率) | {features.get('vdr', 0):.4f} | 面积<10%最大值的帧占比 |")
+        lines.append(f"| **VARR** (相对范围) | {features.get('varr', 0):.4f} | (max-min)/max |")
+        lines.append(f"| **vein_cv** (变异系数) | {features.get('vein_cv', 0):.4f} | std/mean |")
+        lines.append(f"| **MVAR** (最小V/A比) | {features.get('mvar', 0):.4f} | min(vein/artery) |")
+        lines.append(f"| 面积趋势斜率 | {features.get('vein_slope', 0):.6f} | 负=面积下降(正常) |")
+        lines.append(f"| 最大帧间下降 | {features.get('max_drop_ratio', 0):.4f} | 越大=急剧塌陷 |")
+        lines.append(f"| 静脉检出率 | {features.get('vein_detect_rate', 0):.2%} | |")
+        lines.append(f"| 动脉稳定性 | {features.get('artery_stability', 0):.4f} | |")
+    else:
+        lines.append(f"| 面积变化率 (min/max) | {result['area_ratio']:.4f} | |")
+        lines.append(f"| 面积缩减百分比 | {result['area_change_percent']:.1f}% | |")
+
+    lines.append(f"| 静脉最小面积 | {result.get('min_area', 'N/A')} px | |")
+    lines.append(f"| 静脉最大面积 | {result.get('max_area', 'N/A')} px | |")
+
+    # 判断依据
+    ml_thresh = result.get("ml_threshold")
+    if ml_thresh is not None:
+        lines.append(f"| ML 判断阈值 (VCR) | {ml_thresh:.3f} | 高召回优化 |")
+    lines.append(f"| 简单阈值 | {result.get('threshold', 0.4):.2f} | min/max 阈值 |")
+    lines.append(f"| 置信度 | {result['confidence']:.2f} | |")
+    lines.append(f"| 分析帧数 | {n_frames} | |")
 
     lines.append("\n---\n")
     lines.append("**诊断原理**: 在压缩超声检查中，正常静脉会被探头压瘪（面积大幅缩小），"
                  "而有血栓的静脉会拒绝塌陷（面积基本不变）。")
-    lines.append(f"\n当 `min_area / max_area > {result['threshold']:.2f}` 时判为 DVT 疑似。")
+    if ml_thresh is not None:
+        lines.append(f"\n当 `VCR > {ml_thresh:.3f}` 时判为 DVT 疑似（高召回优化阈值）。")
+    else:
+        lines.append(f"\n当 `min_area / max_area > {result.get('threshold', 0.4):.2f}` 时判为 DVT 疑似。")
 
     return "\n".join(lines)
 
