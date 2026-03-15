@@ -15,6 +15,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from web.utils.visualization import draw_detection_boxes, overlay_masks, bgr_to_rgb
 from web.utils.metrics import compute_frame_metrics, compute_mask_area, compute_dvt_diagnosis
+from web.utils.chart_style import setup_matplotlib, style_axis
 
 
 def _run_full_pipeline(
@@ -228,13 +229,13 @@ def _build_area_chart(vein_areas, artery_areas):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+    setup_matplotlib()
 
-    fig, axes = plt.subplots(2, 1, figsize=(12, 7), facecolor="#0f172a")
+    fig, axes = plt.subplots(2, 1, figsize=(12, 7))
     frames = list(range(len(vein_areas)))
 
     # 上图：面积曲线
     ax1 = axes[0]
-    ax1.set_facecolor("#0f172a")
     ax1.fill_between(frames, artery_areas, alpha=0.25, color="#ef4444")
     ax1.fill_between(frames, vein_areas, alpha=0.25, color="#22c55e")
     ax1.plot(frames, artery_areas, color="#ef4444", linewidth=2, label="Artery")
@@ -245,26 +246,17 @@ def _build_area_chart(vein_areas, artery_areas):
         ax1.annotate(f"Min Vein: {vein_areas[min_idx]}", (min_idx, vein_areas[min_idx]),
                      textcoords="offset points", xytext=(10, 10), fontsize=9, color="#f59e0b",
                      arrowprops=dict(arrowstyle="->", color="#f59e0b"))
-    ax1.set_ylabel("Area (px)", color="#94a3b8", fontsize=11)
-    ax1.set_title("Artery / Vein Area Over Frames", color="#e2e8f0", fontsize=13, fontweight="bold")
-    ax1.legend(fontsize=10, facecolor="#1e293b", edgecolor="#334155", labelcolor="#e2e8f0")
-    ax1.tick_params(colors="#64748b")
-    for s in ax1.spines.values(): s.set_color("#334155")
-    ax1.grid(True, alpha=0.15, color="#475569")
+    style_axis(ax1, title="Artery / Vein Area Over Frames", ylabel="Area (px)")
+    ax1.legend(fontsize=10)
 
     # 下图：V/A 比
     ax2 = axes[1]
-    ax2.set_facecolor("#0f172a")
     if artery_areas:
         ratios = [v / a if a > 0 else 0 for v, a in zip(vein_areas, artery_areas)]
         ax2.plot(frames, ratios, color="#06b6d4", linewidth=2)
         ax2.fill_between(frames, ratios, alpha=0.15, color="#06b6d4")
-    ax2.set_xlabel("Frame Index", color="#94a3b8", fontsize=11)
-    ax2.set_ylabel("Vein / Artery Ratio", color="#94a3b8", fontsize=11)
-    ax2.set_title("Vein-to-Artery Area Ratio", color="#e2e8f0", fontsize=13, fontweight="bold")
-    ax2.tick_params(colors="#64748b")
-    for s in ax2.spines.values(): s.set_color("#334155")
-    ax2.grid(True, alpha=0.15, color="#475569")
+    style_axis(ax2, title="Vein-to-Artery Area Ratio",
+              xlabel="Frame Index", ylabel="V/A Ratio")
 
     plt.tight_layout(pad=2.0)
     return fig

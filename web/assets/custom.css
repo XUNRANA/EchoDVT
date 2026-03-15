@@ -1,8 +1,8 @@
 /* ============================================
-   EchoDVT 超声诊断系统 — 自定义 Gradio 主题
+   EchoDVT — Gradio 6.x Custom Dark Theme
    ============================================ */
 
-/* --- 全局变量 --- */
+/* --- Variables --- */
 :root {
     --primary: #2563eb;
     --primary-light: #3b82f6;
@@ -26,22 +26,41 @@
     --shadow-glow: 0 0 20px rgba(37, 99, 235, 0.15);
     --radius: 12px;
     --radius-sm: 8px;
+    --transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* --- 全局背景 --- */
+/* --- Global Background --- */
 .gradio-container {
     background: var(--bg-dark) !important;
     max-width: 100% !important;
     font-family: 'Inter', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif !important;
 }
 
-/* --- 顶部标题 --- */
+/* -- Global Body Override for Gradio 6.x -- */
+body, .dark {
+    background: var(--bg-dark) !important;
+}
+
+/* --- Header --- */
 .app-header {
     background: var(--gradient-primary);
     padding: 24px 32px;
     border-radius: var(--radius);
     margin-bottom: 16px;
     box-shadow: var(--shadow-glow);
+    position: relative;
+    overflow: hidden;
+}
+
+.app-header::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    right: -20%;
+    width: 300px;
+    height: 300px;
+    background: radial-gradient(circle, rgba(255,255,255,0.08) 0%, transparent 70%);
+    pointer-events: none;
 }
 
 .app-header h1 {
@@ -58,7 +77,7 @@
     margin: 4px 0 0 0 !important;
 }
 
-/* --- Tab 栏 --- */
+/* --- Tab Navigation --- */
 .tabs > .tab-nav {
     background: var(--bg-card) !important;
     border-radius: var(--radius) !important;
@@ -73,7 +92,7 @@
     border-radius: var(--radius-sm) !important;
     padding: 10px 20px !important;
     font-weight: 500 !important;
-    transition: all 0.2s ease !important;
+    transition: var(--transition) !important;
     border: none !important;
     font-size: 14px !important;
 }
@@ -84,20 +103,25 @@
 }
 
 .tabs > .tab-nav > button.selected {
-    background: var(--primary) !important;
+    background: var(--gradient-primary) !important;
     color: #fff !important;
-    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.4) !important;
+    box-shadow: 0 2px 12px rgba(37, 99, 235, 0.4) !important;
 }
 
-/* --- 卡片/Block --- */
+/* --- Cards / Blocks --- */
 .block {
     background: var(--bg-card) !important;
     border: 1px solid var(--border) !important;
     border-radius: var(--radius) !important;
     box-shadow: var(--shadow-card) !important;
+    transition: var(--transition) !important;
 }
 
-/* --- 按钮 --- */
+.block:hover {
+    border-color: rgba(59, 130, 246, 0.3) !important;
+}
+
+/* --- Buttons --- */
 .primary-btn, button.primary {
     background: var(--gradient-primary) !important;
     color: #fff !important;
@@ -106,13 +130,18 @@
     padding: 10px 24px !important;
     font-weight: 600 !important;
     font-size: 14px !important;
-    transition: all 0.2s ease !important;
+    transition: var(--transition) !important;
     box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3) !important;
+    cursor: pointer !important;
 }
 
 .primary-btn:hover, button.primary:hover {
-    transform: translateY(-1px) !important;
-    box-shadow: 0 4px 16px rgba(37, 99, 235, 0.5) !important;
+    transform: translateY(-2px) !important;
+    box-shadow: 0 6px 20px rgba(37, 99, 235, 0.5) !important;
+}
+
+.primary-btn:active, button.primary:active {
+    transform: translateY(0) !important;
 }
 
 button.secondary {
@@ -120,15 +149,34 @@ button.secondary {
     color: var(--text-primary) !important;
     border: 1px solid var(--border) !important;
     border-radius: var(--radius-sm) !important;
+    transition: var(--transition) !important;
 }
 
-/* --- Dropdown / 输入框 --- */
+button.secondary:hover {
+    background: rgba(51, 65, 85, 0.8) !important;
+    border-color: var(--primary-light) !important;
+}
+
+button.lg {
+    min-height: 48px !important;
+    font-size: 15px !important;
+}
+
+/* --- Inputs --- */
 .wrap input, .wrap textarea, .wrap select,
 input[type="text"], textarea, select {
     background: var(--bg-dark) !important;
     color: var(--text-primary) !important;
     border: 1px solid var(--border) !important;
     border-radius: var(--radius-sm) !important;
+    transition: var(--transition) !important;
+}
+
+.wrap input:focus, .wrap textarea:focus, .wrap select:focus,
+input[type="text"]:focus, textarea:focus, select:focus {
+    border-color: var(--primary-light) !important;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15) !important;
+    outline: none !important;
 }
 
 /* --- Slider --- */
@@ -136,13 +184,13 @@ input[type="range"] {
     accent-color: var(--primary) !important;
 }
 
-/* --- Label --- */
+/* --- Labels --- */
 label, .label-wrap span {
     color: var(--text-secondary) !important;
     font-weight: 500 !important;
 }
 
-/* --- 图片展示 --- */
+/* --- Images --- */
 .image-container img {
     border-radius: var(--radius-sm) !important;
     border: 1px solid var(--border) !important;
@@ -152,20 +200,31 @@ label, .label-wrap span {
 .gallery-item {
     border-radius: var(--radius-sm) !important;
     border: 2px solid transparent !important;
-    transition: all 0.2s ease !important;
+    transition: var(--transition) !important;
+    overflow: hidden;
 }
 
 .gallery-item:hover {
     border-color: var(--primary-light) !important;
-    box-shadow: 0 0 12px rgba(37, 99, 235, 0.3) !important;
+    box-shadow: 0 0 16px rgba(37, 99, 235, 0.3) !important;
+    transform: scale(1.02);
 }
 
-/* --- DataFrame --- */
+.gallery-item .caption {
+    color: var(--text-secondary) !important;
+    font-size: 11px !important;
+    background: rgba(15, 23, 42, 0.9) !important;
+    backdrop-filter: blur(4px);
+}
+
+/* --- Tables --- */
 table {
     background: var(--bg-card) !important;
     color: var(--text-primary) !important;
     border: 1px solid var(--border) !important;
     border-radius: var(--radius-sm) !important;
+    border-collapse: separate;
+    border-spacing: 0;
 }
 
 th {
@@ -173,51 +232,68 @@ th {
     color: var(--text-secondary) !important;
     font-weight: 600 !important;
     border-bottom: 2px solid var(--primary) !important;
+    text-transform: uppercase;
+    font-size: 12px;
+    letter-spacing: 0.5px;
 }
 
 td {
     border-bottom: 1px solid var(--border) !important;
+    padding: 8px 12px !important;
 }
 
-/* --- 状态指示 --- */
+tr:hover td {
+    background: rgba(37, 99, 235, 0.05) !important;
+}
+
+/* --- Status Badges --- */
 .status-normal {
     background: rgba(16, 185, 129, 0.15);
     color: var(--success);
-    padding: 4px 12px;
-    border-radius: 20px;
+    padding: 6px 16px;
+    border-radius: 24px;
     font-weight: 600;
     font-size: 13px;
+    display: inline-block;
 }
 
 .status-dvt {
     background: rgba(239, 68, 68, 0.15);
     color: var(--danger);
-    padding: 4px 12px;
-    border-radius: 20px;
+    padding: 6px 16px;
+    border-radius: 24px;
     font-weight: 600;
     font-size: 13px;
+    display: inline-block;
 }
 
 .status-pending {
     background: rgba(245, 158, 11, 0.15);
     color: var(--warning);
-    padding: 4px 12px;
-    border-radius: 20px;
+    padding: 6px 16px;
+    border-radius: 24px;
     font-weight: 600;
     font-size: 13px;
+    display: inline-block;
 }
 
-/* --- 指标卡片 --- */
+/* --- Metric Cards --- */
 .metric-card {
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     padding: 20px;
     text-align: center;
+    transition: var(--transition);
+}
+
+.metric-card:hover {
+    border-color: var(--primary-light);
+    box-shadow: var(--shadow-glow);
 }
 
 .metric-value {
-    font-size: 32px;
+    font-size: 36px;
     font-weight: 700;
     color: var(--primary-light);
     line-height: 1.2;
@@ -229,7 +305,7 @@ td {
     margin-top: 4px;
 }
 
-/* --- Markdown 内容 --- */
+/* --- Markdown --- */
 .prose, .markdown-text {
     color: var(--text-primary) !important;
 }
@@ -244,6 +320,25 @@ td {
     color: var(--accent) !important;
     padding: 2px 6px !important;
     border-radius: 4px !important;
+}
+
+.prose blockquote {
+    border-left: 3px solid var(--primary-light) !important;
+    background: rgba(37, 99, 235, 0.05) !important;
+    padding: 12px 16px !important;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0 !important;
+    color: var(--text-secondary) !important;
+}
+
+.prose table {
+    border-spacing: 0;
+    border-collapse: collapse;
+    width: 100%;
+}
+
+.prose table td,
+.prose table th {
+    padding: 8px 12px !important;
 }
 
 /* --- Accordion --- */
@@ -263,10 +358,10 @@ td {
 .progress-bar .progress-fill {
     background: var(--gradient-primary) !important;
     border-radius: 8px !important;
-    transition: width 0.3s ease !important;
+    transition: width 0.4s ease !important;
 }
 
-/* --- 分割线 --- */
+/* --- Divider --- */
 hr {
     border-color: var(--border) !important;
     opacity: 0.5;
@@ -291,13 +386,17 @@ hr {
     background: var(--text-muted);
 }
 
-/* --- Plot --- */
+/* --- Plot Container --- */
 .plot-container {
     background: var(--bg-card) !important;
     border-radius: var(--radius) !important;
 }
 
-/* --- 诊断报告 (pipeline.py) --- */
+.plot-container canvas {
+    border-radius: var(--radius-sm) !important;
+}
+
+/* --- Diagnosis Report --- */
 .full-report {
     background: var(--bg-card);
     border: 1px solid var(--border);
@@ -322,6 +421,11 @@ hr {
     background: rgba(15, 23, 42, 0.5);
     border: 1px solid rgba(51, 65, 85, 0.6);
     border-radius: var(--radius-sm);
+    transition: var(--transition);
+}
+
+.report-section:hover {
+    border-color: rgba(59, 130, 246, 0.3);
 }
 
 .report-section h3 {
@@ -369,23 +473,27 @@ hr {
     font-size: 12px;
 }
 
-/* --- 动画 --- */
+/* --- Animations --- */
 @keyframes pulse-glow {
     0%, 100% { box-shadow: 0 0 8px rgba(37, 99, 235, 0.2); }
-    50% { box-shadow: 0 0 20px rgba(37, 99, 235, 0.4); }
+    50% { box-shadow: 0 0 24px rgba(37, 99, 235, 0.5); }
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
 }
 
 .processing {
     animation: pulse-glow 2s ease-in-out infinite;
 }
 
-/* --- 改进：按钮增强 --- */
-button.lg {
-    min-height: 44px !important;
-    font-size: 15px !important;
+/* Fade in content blocks */
+.block, .tab-content {
+    animation: fadeIn 0.3s ease-out;
 }
 
-/* --- 改进：Group 面板 --- */
+/* --- Group Panel --- */
 .group {
     background: var(--bg-card) !important;
     border: 1px solid var(--border) !important;
@@ -393,44 +501,56 @@ button.lg {
     padding: 16px !important;
 }
 
-/* --- 改进：Radio / Checkbox --- */
+/* --- Radio / Checkbox --- */
 .wrap .radio-group label,
 .wrap .checkbox-group label {
     color: var(--text-primary) !important;
 }
 
-/* --- 改进：Tabs 内子 tabs 区分 --- */
+/* --- Nested Tabs --- */
 .tab-content .tabs > .tab-nav {
     background: rgba(15, 23, 42, 0.6) !important;
     border: 1px solid rgba(51, 65, 85, 0.5) !important;
 }
 
-/* --- 改进：Plot 容器 --- */
-.plot-container canvas {
-    border-radius: var(--radius-sm) !important;
+/* --- Upload Area Enhancement --- */
+.upload-container, [data-testid="upload-area"] {
+    border: 2px dashed var(--border) !important;
+    border-radius: var(--radius) !important;
+    transition: var(--transition) !important;
 }
 
-/* --- 改进：Gallery 标注文字 --- */
-.gallery-item .caption {
-    color: var(--text-secondary) !important;
-    font-size: 11px !important;
-    background: rgba(15, 23, 42, 0.85) !important;
+.upload-container:hover, [data-testid="upload-area"]:hover {
+    border-color: var(--primary-light) !important;
+    background: rgba(37, 99, 235, 0.05) !important;
 }
 
-/* --- 改进：Markdown 表格 --- */
-.prose table {
-    border-spacing: 0;
-    border-collapse: collapse;
-    width: 100%;
+/* --- Responsive Design --- */
+@media (max-width: 1024px) {
+    .app-header {
+        padding: 16px 20px;
+    }
+    .app-header h1 {
+        font-size: 22px !important;
+    }
+    .app-header p {
+        font-size: 12px !important;
+    }
+    .tabs > .tab-nav > button {
+        padding: 8px 12px !important;
+        font-size: 12px !important;
+    }
 }
 
-.prose table th {
-    text-transform: uppercase;
-    font-size: 12px;
-    letter-spacing: 0.5px;
-}
-
-.prose table td,
-.prose table th {
-    padding: 8px 12px !important;
+@media (max-width: 768px) {
+    .tabs > .tab-nav {
+        flex-wrap: wrap;
+    }
+    .tabs > .tab-nav > button {
+        padding: 6px 10px !important;
+        font-size: 11px !important;
+    }
+    .metric-value {
+        font-size: 24px;
+    }
 }

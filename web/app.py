@@ -34,12 +34,13 @@ from tabs.pipeline import build_pipeline_tab
 CSS_PATH = Path(__file__).parent / "assets" / "custom.css"
 
 
-def build_app() -> gr.Blocks:
+def build_app():
     """构建完整的 Gradio 应用"""
     custom_css = ""
     if CSS_PATH.exists():
         custom_css = CSS_PATH.read_text(encoding="utf-8")
 
+    # ★ Gradio 6.x: theme 和 css 在 launch() 中传入
     theme = gr.themes.Base(
         primary_hue=gr.themes.colors.blue,
         secondary_hue=gr.themes.colors.cyan,
@@ -107,7 +108,8 @@ def build_app() -> gr.Blocks:
 
         # ===== 底部 =====
         gr.HTML("""
-        <div style="text-align:center; padding:12px; color:#475569; font-size:12px; margin-top:8px;">
+        <div style="text-align:center; padding:16px; color:#64748b; font-size:12px; margin-top:12px;
+                    border-top:1px solid #1e293b;">
             EchoDVT v2.0 &mdash; YOLO + SAM2 LoRA + MFP + 19-Feature Classification
         </div>
         """)
@@ -130,6 +132,7 @@ def main():
         show_error=True,
         css=css,
         theme=theme,
+        max_file_size="2gb",      # ★ 允许上传最大 2GB 的视频文件
     )
 
 

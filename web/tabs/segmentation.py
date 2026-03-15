@@ -29,9 +29,9 @@ def _run_sam2_segmentation(
 ):
     """运行 SAM2 分割"""
     if not state.get("frame_files"):
-        return state, None, [], "⚠️ 请先在「视频上传」Tab 中加载案例"
+        return state, None, [], "⚠️ 请先在「📤 数据输入」Tab 中加载案例"
     if not state.get("detections"):
-        return state, None, [], "⚠️ 请先在「YOLO 检测」Tab 中运行检测"
+        return state, None, [], "⚠️ 请先在「🎯 YOLO 检测」Tab 中运行检测"
 
     images_dir = Path(state["images_dir"])
     masks_dir = Path(state["masks_dir"])
@@ -273,13 +273,20 @@ def _format_segmentation_report(metrics_list, total_frames, variant):
 def build_segmentation_tab(state: gr.State):
     """构建 SAM2 分割 Tab"""
 
-    gr.Markdown("""
-    ### SAM2 视频分割
-    使用首帧 YOLO 检测框作为 prompt，通过 SAM2 记忆传播机制完成全视频分割。
-    """)
+    with gr.Row(equal_height=False):
+        with gr.Column(scale=2):
+            gr.HTML("""
+            <div style="padding:16px 20px; background:linear-gradient(135deg, #1a2f4f, #1e293b);
+                        border-radius:12px; border:1px solid #334155; margin-bottom:8px;">
+                <h3 style="margin:0 0 4px 0; color:#e2e8f0; font-size:16px;">
+                    🔬 SAM2 视频分割
+                </h3>
+                <p style="margin:0; color:#94a3b8; font-size:13px;">
+                    使用首帧 YOLO 检测框作为 prompt，通过 SAM2 记忆传播机制完成全视频分割
+                </p>
+            </div>
+            """)
 
-    with gr.Row():
-        with gr.Column(scale=1):
             model_variant = gr.Radio(
                 choices=[
                     "Baseline (Large)",
@@ -298,14 +305,17 @@ def build_segmentation_tab(state: gr.State):
             use_mfp = gr.Checkbox(
                 label="启用多帧提示 (MFP)",
                 value=False,
-                info="在多个帧上运行 YOLO 检测作为额外 conditioning（仅对 LoRA 变体生效）",
+                info="每隔 15 帧用 YOLO 重新锚定，减少误差累积（仅对 LoRA 变体生效）",
             )
 
             segment_btn = gr.Button("🔬 开始分割", variant="primary", size="lg")
 
-            seg_report = gr.Markdown("点击「开始分割」运行 SAM2 视频分割")
+            seg_report = gr.Markdown("""
+> 💡 **操作指引**: 选择模型变体后点击「开始分割」。
+> 分割完成后可在右侧 Gallery 中查看各帧分割结果。
+""")
 
-        with gr.Column(scale=2):
+        with gr.Column(scale=3):
             seg_preview = gr.Image(
                 label="分割预览（红色=动脉，绿色=静脉）",
                 height=400,
