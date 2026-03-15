@@ -1,0 +1,308 @@
+/* ============================================
+   EchoDVT 超声诊断系统 — 自定义 Gradio 主题
+   ============================================ */
+
+/* --- 全局变量 --- */
+:root {
+    --primary: #2563eb;
+    --primary-light: #3b82f6;
+    --primary-dark: #1d4ed8;
+    --accent: #06b6d4;
+    --success: #10b981;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --bg-dark: #0f172a;
+    --bg-card: #1e293b;
+    --bg-card-hover: #334155;
+    --text-primary: #f1f5f9;
+    --text-secondary: #94a3b8;
+    --text-muted: #64748b;
+    --border: #334155;
+    --artery-color: #ef4444;
+    --vein-color: #22c55e;
+    --gradient-primary: linear-gradient(135deg, #2563eb, #06b6d4);
+    --gradient-accent: linear-gradient(135deg, #06b6d4, #10b981);
+    --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.25);
+    --shadow-glow: 0 0 20px rgba(37, 99, 235, 0.15);
+    --radius: 12px;
+    --radius-sm: 8px;
+}
+
+/* --- 全局背景 --- */
+.gradio-container {
+    background: var(--bg-dark) !important;
+    max-width: 100% !important;
+    font-family: 'Inter', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif !important;
+}
+
+/* --- 顶部标题 --- */
+.app-header {
+    background: var(--gradient-primary);
+    padding: 24px 32px;
+    border-radius: var(--radius);
+    margin-bottom: 16px;
+    box-shadow: var(--shadow-glow);
+}
+
+.app-header h1 {
+    color: #fff !important;
+    font-size: 28px !important;
+    font-weight: 700 !important;
+    margin: 0 !important;
+    letter-spacing: -0.5px;
+}
+
+.app-header p {
+    color: rgba(255, 255, 255, 0.85) !important;
+    font-size: 14px !important;
+    margin: 4px 0 0 0 !important;
+}
+
+/* --- Tab 栏 --- */
+.tabs > .tab-nav {
+    background: var(--bg-card) !important;
+    border-radius: var(--radius) !important;
+    padding: 4px !important;
+    gap: 4px !important;
+    border: 1px solid var(--border) !important;
+}
+
+.tabs > .tab-nav > button {
+    background: transparent !important;
+    color: var(--text-secondary) !important;
+    border-radius: var(--radius-sm) !important;
+    padding: 10px 20px !important;
+    font-weight: 500 !important;
+    transition: all 0.2s ease !important;
+    border: none !important;
+    font-size: 14px !important;
+}
+
+.tabs > .tab-nav > button:hover {
+    background: var(--bg-card-hover) !important;
+    color: var(--text-primary) !important;
+}
+
+.tabs > .tab-nav > button.selected {
+    background: var(--primary) !important;
+    color: #fff !important;
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.4) !important;
+}
+
+/* --- 卡片/Block --- */
+.block {
+    background: var(--bg-card) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius) !important;
+    box-shadow: var(--shadow-card) !important;
+}
+
+/* --- 按钮 --- */
+.primary-btn, button.primary {
+    background: var(--gradient-primary) !important;
+    color: #fff !important;
+    border: none !important;
+    border-radius: var(--radius-sm) !important;
+    padding: 10px 24px !important;
+    font-weight: 600 !important;
+    font-size: 14px !important;
+    transition: all 0.2s ease !important;
+    box-shadow: 0 2px 8px rgba(37, 99, 235, 0.3) !important;
+}
+
+.primary-btn:hover, button.primary:hover {
+    transform: translateY(-1px) !important;
+    box-shadow: 0 4px 16px rgba(37, 99, 235, 0.5) !important;
+}
+
+button.secondary {
+    background: var(--bg-card-hover) !important;
+    color: var(--text-primary) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-sm) !important;
+}
+
+/* --- Dropdown / 输入框 --- */
+.wrap input, .wrap textarea, .wrap select,
+input[type="text"], textarea, select {
+    background: var(--bg-dark) !important;
+    color: var(--text-primary) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-sm) !important;
+}
+
+/* --- Slider --- */
+input[type="range"] {
+    accent-color: var(--primary) !important;
+}
+
+/* --- Label --- */
+label, .label-wrap span {
+    color: var(--text-secondary) !important;
+    font-weight: 500 !important;
+}
+
+/* --- 图片展示 --- */
+.image-container img {
+    border-radius: var(--radius-sm) !important;
+    border: 1px solid var(--border) !important;
+}
+
+/* --- Gallery --- */
+.gallery-item {
+    border-radius: var(--radius-sm) !important;
+    border: 2px solid transparent !important;
+    transition: all 0.2s ease !important;
+}
+
+.gallery-item:hover {
+    border-color: var(--primary-light) !important;
+    box-shadow: 0 0 12px rgba(37, 99, 235, 0.3) !important;
+}
+
+/* --- DataFrame --- */
+table {
+    background: var(--bg-card) !important;
+    color: var(--text-primary) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-sm) !important;
+}
+
+th {
+    background: var(--bg-dark) !important;
+    color: var(--text-secondary) !important;
+    font-weight: 600 !important;
+    border-bottom: 2px solid var(--primary) !important;
+}
+
+td {
+    border-bottom: 1px solid var(--border) !important;
+}
+
+/* --- 状态指示 --- */
+.status-normal {
+    background: rgba(16, 185, 129, 0.15);
+    color: var(--success);
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.status-dvt {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--danger);
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.status-pending {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--warning);
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-weight: 600;
+    font-size: 13px;
+}
+
+/* --- 指标卡片 --- */
+.metric-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    text-align: center;
+}
+
+.metric-value {
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--primary-light);
+    line-height: 1.2;
+}
+
+.metric-label {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+
+/* --- Markdown 内容 --- */
+.prose, .markdown-text {
+    color: var(--text-primary) !important;
+}
+
+.prose h1, .prose h2, .prose h3 {
+    color: var(--text-primary) !important;
+    font-weight: 700 !important;
+}
+
+.prose code {
+    background: var(--bg-dark) !important;
+    color: var(--accent) !important;
+    padding: 2px 6px !important;
+    border-radius: 4px !important;
+}
+
+/* --- Accordion --- */
+.accordion {
+    background: var(--bg-card) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius) !important;
+}
+
+/* --- Progress Bar --- */
+.progress-bar {
+    background: var(--bg-dark) !important;
+    border-radius: 8px !important;
+    overflow: hidden;
+}
+
+.progress-bar .progress-fill {
+    background: var(--gradient-primary) !important;
+    border-radius: 8px !important;
+    transition: width 0.3s ease !important;
+}
+
+/* --- 分割线 --- */
+hr {
+    border-color: var(--border) !important;
+    opacity: 0.5;
+}
+
+/* --- Scrollbar --- */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bg-dark);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
+}
+
+/* --- Plot --- */
+.plot-container {
+    background: var(--bg-card) !important;
+    border-radius: var(--radius) !important;
+}
+
+/* --- 动画 --- */
+@keyframes pulse-glow {
+    0%, 100% { box-shadow: 0 0 8px rgba(37, 99, 235, 0.2); }
+    50% { box-shadow: 0 0 20px rgba(37, 99, 235, 0.4); }
+}
+
+.processing {
+    animation: pulse-glow 2s ease-in-out infinite;
+}
