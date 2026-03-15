@@ -28,6 +28,7 @@ from tabs.segmentation import build_segmentation_tab
 from tabs.diagnosis import build_diagnosis_tab
 from tabs.evaluation import build_evaluation_tab
 from tabs.comparison import build_comparison_tab
+from tabs.pipeline import build_pipeline_tab
 
 
 CSS_PATH = Path(__file__).parent / "assets" / "custom.css"
@@ -39,7 +40,7 @@ def build_app() -> gr.Blocks:
     if CSS_PATH.exists():
         custom_css = CSS_PATH.read_text(encoding="utf-8")
 
-    app_theme = gr.themes.Base(
+    theme = gr.themes.Base(
         primary_hue=gr.themes.colors.blue,
         secondary_hue=gr.themes.colors.cyan,
         neutral_hue=gr.themes.colors.slate,
@@ -47,15 +48,22 @@ def build_app() -> gr.Blocks:
     )
 
     with gr.Blocks(title="EchoDVT 超声诊断系统") as app:
-        # Store theme and css for launch
-        app._custom_css = custom_css
-        app._custom_theme = app_theme
 
         # ===== 顶部标题 =====
         gr.HTML("""
         <div class="app-header">
-            <h1>🫀 EchoDVT — 超声深静脉血栓智能诊断系统</h1>
-            <p>基于 YOLO 检测 + SAM2 视频分割 + 时序特征分析的自动化 DVT 诊断平台</p>
+            <div style="display:flex; align-items:center; gap:16px;">
+                <div style="font-size:42px; line-height:1;">🫀</div>
+                <div>
+                    <h1 style="margin:0; font-size:26px; font-weight:800; color:#fff;
+                               letter-spacing:-0.5px;">
+                        EchoDVT — 超声深静脉血栓智能诊断系统
+                    </h1>
+                    <p style="margin:4px 0 0 0; font-size:13px; color:rgba(255,255,255,0.75);">
+                        YOLO 血管检测 &rarr; SAM2 LoRA 视频分割 &rarr; 19 维特征分析 &rarr; DVT 智能判断
+                    </p>
+                </div>
+            </div>
         </div>
         """)
 
@@ -66,6 +74,7 @@ def build_app() -> gr.Blocks:
             "masks_dir": None,
             "frame_files": [],
             "mask_files": [],
+            "from_video": False,
             "detections": None,
             "pred_masks": None,
             "frame_metrics": [],
@@ -73,10 +82,13 @@ def build_app() -> gr.Blocks:
             "artery_areas": [],
         })
 
-        # ===== 6 个功能 Tab =====
+        # ===== Tab 布局 =====
         with gr.Tabs() as tabs:
-            with gr.Tab("📤 视频上传", id="upload"):
+            with gr.Tab("📤 数据输入", id="upload"):
                 build_upload_tab(state)
+
+            with gr.Tab("🚀 一键分析", id="pipeline"):
+                build_pipeline_tab(state)
 
             with gr.Tab("🎯 YOLO 检测", id="detection"):
                 build_detection_tab(state)
@@ -84,7 +96,7 @@ def build_app() -> gr.Blocks:
             with gr.Tab("🔬 SAM2 分割", id="segmentation"):
                 build_segmentation_tab(state)
 
-            with gr.Tab("🩺 DVT 诊断", id="diagnosis"):
+            with gr.Tab("🩺 诊断报告", id="diagnosis"):
                 build_diagnosis_tab(state)
 
             with gr.Tab("📊 定量评估", id="evaluation"):
@@ -93,7 +105,14 @@ def build_app() -> gr.Blocks:
             with gr.Tab("⚖️ 模型对比", id="comparison"):
                 build_comparison_tab(state)
 
-    return app
+        # ===== 底部 =====
+        gr.HTML("""
+        <div style="text-align:center; padding:12px; color:#475569; font-size:12px; margin-top:8px;">
+            EchoDVT v2.0 &mdash; YOLO + SAM2 LoRA + MFP + 19-Feature Classification
+        </div>
+        """)
+
+    return app, custom_css, theme
 
 
 def main():
@@ -103,19 +122,15 @@ def main():
     parser.add_argument("--server-name", type=str, default="0.0.0.0")
     args = parser.parse_args()
 
-    app = build_app()
-    launch_kwargs = {
-        "server_name": args.server_name,
-        "server_port": args.port,
-        "share": args.share,
-        "show_error": True,
-    }
-    # Gradio 6.x: pass theme/css to launch
-    if hasattr(app, '_custom_css'):
-        launch_kwargs["css"] = app._custom_css
-    if hasattr(app, '_custom_theme'):
-        launch_kwargs["theme"] = app._custom_theme
-    app.launch(**launch_kwargs)
+    app, css, theme = build_app()
+    app.launch(
+        server_name=args.server_name,
+        server_port=args.port,
+        share=args.share,
+        show_error=True,
+        css=css,
+        theme=theme,
+    )
 
 
 if __name__ == "__main__":

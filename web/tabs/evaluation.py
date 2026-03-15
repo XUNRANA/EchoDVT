@@ -106,7 +106,7 @@ def _format_eval_report(summary: dict, metrics_list: list) -> str:
     if metrics_list:
         worst = min(metrics_list, key=lambda m: m["mean_dice"])
         best = max(metrics_list, key=lambda m: m["mean_dice"])
-        lines.append(f"\n- 🏆 **最佳帧**: Frame {worst['frame_idx']} (Dice = {best['mean_dice']:.4f})")
+        lines.append(f"\n- 🏆 **最佳帧**: Frame {best['frame_idx']} (Dice = {best['mean_dice']:.4f})")
         lines.append(f"- ⚠️ **最差帧**: Frame {worst['frame_idx']} (Dice = {worst['mean_dice']:.4f})")
 
     return "\n".join(lines)
