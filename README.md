@@ -61,3 +61,16 @@ python inference_box_prompt_large.py \
 - 仅在有 `masks/*.png` 标注的帧上计算动脉/静脉各自 Dice、mIoU，并汇总整体指标。
 - 提供 frame-weighted 与 case-weighted 两种全局统计口径。
 - 输出日志、`frame_metrics.csv`、`case_metrics.csv`、`summary.json` 以及每个样例可视化结果。
+
+
+
+
+
+
+IMPORTANT:
+最终目标做一个系统 
+需要在网页端显示
+可以在本地部署
+需要有丰富的功能
+图形化界面
+前端肯定需要
