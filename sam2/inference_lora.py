@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """
-SAM2 LoRA 推理评估脚本（YOLO box prompt + V2 后处理模块）
+SAM2 LoRA 推理评估脚本（YOLO box prompt + 多帧提示）
 
 功能：
 1) 加载 LoRA 微调后的 SAM2 权重
-2) 使用 YOLO 提供 artery/vein 框, 支持多帧 prompting (V2)
+2) 使用 YOLO 提供 artery/vein 框, 支持多帧 prompting (MFP)
 3) 后续帧仅依赖 memory 传播 (不修改 SAM2 内部状态)
-4) V2 后处理: 时序平滑 + 重叠解决 + 连通域去噪
-5) 仅在有标注帧上评估 Dice / mIoU
-6) 输出日志、CSV、summary.json、每帧可视化
+4) 仅在有标注帧上评估 Dice / mIoU
+5) 输出日志、CSV、summary.json、每帧可视化
 
 用法:
     cd sam2
@@ -16,10 +15,10 @@ SAM2 LoRA 推理评估脚本（YOLO box prompt + V2 后处理模块）
       --lora-weights checkpoints/lora_runs/<run>/lora_best.pt \
       --split val
 
-    # 启用 V2 后处理模块
+    # 启用多帧提示
     python inference_lora.py \
       --lora-weights checkpoints/lora_runs/<run>/lora_best.pt \
-      --multi-frame-prompt --temporal-smooth --overlap-resolve
+      --multi-frame-prompt True
 """
 
 from __future__ import annotations
@@ -64,8 +63,8 @@ from inference_box_prompt_large import (
 # ── LoRA SAM2 构建 ──
 from sam2.lora_sam2 import LoRA_SAM2_Video, build_lora_sam2_video
 
-# ── V2 后处理模块 ──
-from sam2.postprocess import MultiFramePrompter, TemporalSmoother, OverlapResolver
+# ── 多帧提示模块 ──
+from sam2.postprocess import MultiFramePrompter
 
 
 class LoRASAM2VideoSegmenter:
@@ -294,19 +293,9 @@ def run(args: argparse.Namespace) -> None:
         raise FileNotFoundError(f"LoRA 权重不存在: {lora_weights}")
 
     output_root = Path(args.output_root).resolve()
-    # V2 modules flags
+    # MFP flag
     use_mfp = args.multi_frame_prompt
-    use_ts = args.temporal_smooth
-    use_or = args.overlap_resolve
-    v2_tag = ""
-    if use_mfp:
-        v2_tag += f"_mfp{args.mfp_interval}"
-    if use_ts:
-        v2_tag += "_ts"
-    if use_or:
-        v2_tag += "_or"
-    if not v2_tag:
-        v2_tag = "_baseline"
+    v2_tag = f"_mfp{args.mfp_interval}" if use_mfp else "_baseline"
     run_name = (
         f"{args.split}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         f"_lora_r{args.lora_r}"
@@ -335,8 +324,7 @@ def run(args: argparse.Namespace) -> None:
     logger.log(f"LoRA memory_attention: {args.lora_memory_attention}")
     logger.log(f"LoRA memory_encoder: {args.lora_memory_encoder}")
     logger.log(
-        f"V2 modules: MultiFramePrompt={use_mfp} (interval={args.mfp_interval}), "
-        f"TemporalSmooth={use_ts}, OverlapResolve={use_or}"
+        f"MultiFramePrompt={use_mfp} (interval={args.mfp_interval})"
     )
     logger.log(
         f"Mask thresh: artery={artery_thresh:.3f}, vein={vein_thresh:.3f}, "
@@ -370,21 +358,12 @@ def run(args: argparse.Namespace) -> None:
         lora_memory_encoder=args.lora_memory_encoder,
     )
 
-    # ── V2 后处理模块 ──
+    # ── 多帧提示模块 ──
     multi_frame_prompter = MultiFramePrompter(
         interval=args.mfp_interval,
         min_conf=args.mfp_min_conf,
         max_prompts=args.mfp_max_prompts,
     ) if use_mfp else None
-
-    temporal_smoother = TemporalSmoother(
-        area_change_thresh=args.ts_area_thresh,
-        centroid_shift_thresh=args.ts_centroid_thresh,
-    ) if use_ts else None
-
-    overlap_resolver = OverlapResolver(
-        min_component_area=args.or_min_area,
-    ) if use_or else None
 
     # ── 遍历 case ──
     case_dirs = sorted([p for p in split_dir.iterdir() if p.is_dir()])
@@ -469,14 +448,6 @@ def run(args: argparse.Namespace) -> None:
             morph_kernel=args.morph_kernel,
             extra_prompt_frames=extra_prompt_frames,
         )
-
-        # V2: Overlap Resolution (per frame)
-        if overlap_resolver is not None:
-            pred_masks_by_idx = overlap_resolver.resolve_batch(pred_masks_by_idx)
-
-        # V2: Temporal Smoothing (across frames)
-        if temporal_smoother is not None:
-            pred_masks_by_idx = temporal_smoother.smooth_sequence(pred_masks_by_idx)
 
         # 评估 + 可视化
         case_metrics: List[Dict[str, float]] = []
@@ -605,8 +576,6 @@ def run(args: argparse.Namespace) -> None:
                 "yolo_model": str(yolo_model_path),
                 "multi_frame_prompt": use_mfp,
                 "mfp_interval": args.mfp_interval if use_mfp else None,
-                "temporal_smooth": use_ts,
-                "overlap_resolve": use_or,
             },
             f,
             ensure_ascii=False,
@@ -671,25 +640,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lora-memory-encoder", type=str2bool, default=False,
                         help="是否解冻 memory_encoder (需和训练一致)")
 
-    # V2 post-processing modules (operate OUTSIDE SAM2, safe and complementary to LoRA)
+    # Multi-Frame Prompting (operates OUTSIDE SAM2, safe and complementary to LoRA)
     parser.add_argument("--multi-frame-prompt", type=str2bool, default=False,
-                        help="V2: 多帧YOLO prompting, 减少误差累积")
+                        help="多帧YOLO prompting, 减少误差累积")
     parser.add_argument("--mfp-interval", type=int, default=15,
                         help="多帧prompt间隔 (帧数)")
     parser.add_argument("--mfp-min-conf", type=float, default=0.3,
                         help="多帧prompt最低YOLO置信度")
     parser.add_argument("--mfp-max-prompts", type=int, default=5,
                         help="最多添加多少个额外prompt帧")
-    parser.add_argument("--temporal-smooth", type=str2bool, default=False,
-                        help="V2: 时序平滑, 替换异常帧")
-    parser.add_argument("--ts-area-thresh", type=float, default=2.0,
-                        help="时序平滑面积突变阈值")
-    parser.add_argument("--ts-centroid-thresh", type=float, default=0.15,
-                        help="时序平滑质心位移阈值")
-    parser.add_argument("--overlap-resolve", type=str2bool, default=False,
-                        help="V2: 重叠解决+连通域去噪")
-    parser.add_argument("--or-min-area", type=int, default=50,
-                        help="最小连通域面积")
 
     return parser
 
