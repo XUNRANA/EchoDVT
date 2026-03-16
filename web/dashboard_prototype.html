@@ -1,0 +1,1784 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EchoDVT Dashboard Prototype</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+/* ============================================
+   EchoDVT Dashboard — Full Prototype
+   ============================================ */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+    --primary: #2563eb;
+    --primary-light: #3b82f6;
+    --primary-dark: #1d4ed8;
+    --accent: #06b6d4;
+    --success: #10b981;
+    --success-light: #34d399;
+    --warning: #f59e0b;
+    --warning-light: #fbbf24;
+    --danger: #ef4444;
+    --danger-light: #f87171;
+    --purple: #8b5cf6;
+    --pink: #ec4899;
+    --bg-body: #0a0f1e;
+    --bg-sidebar: #0d1225;
+    --bg-dark: #0f172a;
+    --bg-card: #1e293b;
+    --bg-card-hover: #253349;
+    --bg-input: #131b2e;
+    --text-primary: #f1f5f9;
+    --text-secondary: #94a3b8;
+    --text-muted: #64748b;
+    --border: #1e3050;
+    --border-light: #2d4a6f;
+    --artery-color: #ef4444;
+    --vein-color: #22c55e;
+    --gradient-primary: linear-gradient(135deg, #2563eb, #06b6d4);
+    --gradient-success: linear-gradient(135deg, #10b981, #06b6d4);
+    --gradient-danger: linear-gradient(135deg, #ef4444, #ec4899);
+    --gradient-warning: linear-gradient(135deg, #f59e0b, #ef4444);
+    --gradient-purple: linear-gradient(135deg, #8b5cf6, #ec4899);
+    --gradient-sidebar: linear-gradient(180deg, #0d1225 0%, #0a1628 100%);
+    --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.3);
+    --shadow-glow-blue: 0 0 30px rgba(37, 99, 235, 0.15);
+    --shadow-glow-green: 0 0 30px rgba(16, 185, 129, 0.15);
+    --shadow-glow-red: 0 0 30px rgba(239, 68, 68, 0.15);
+    --radius: 16px;
+    --radius-sm: 10px;
+    --radius-xs: 6px;
+    --sidebar-width: 260px;
+    --topbar-height: 60px;
+    --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+html { font-size: 14px; }
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg-body);
+    color: var(--text-primary);
+    overflow-x: hidden;
+    min-height: 100vh;
+}
+
+/* ============ SIDEBAR ============ */
+.sidebar {
+    position: fixed;
+    top: 0; left: 0;
+    width: var(--sidebar-width);
+    height: 100vh;
+    background: var(--gradient-sidebar);
+    border-right: 1px solid var(--border);
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+}
+
+.sidebar-logo {
+    padding: 20px 22px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+.sidebar-logo-icon {
+    width: 44px; height: 44px;
+    background: var(--gradient-primary);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    box-shadow: 0 4px 16px rgba(37, 99, 235, 0.3);
+}
+
+.sidebar-logo-text {
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    background: var(--gradient-primary);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.sidebar-logo-sub {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-weight: 500;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+/* Sidebar Search */
+.sidebar-search {
+    padding: 16px 18px;
+}
+
+.sidebar-search input {
+    width: 100%;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 10px 14px 10px 38px;
+    color: var(--text-primary);
+    font-size: 13px;
+    outline: none;
+    transition: var(--transition);
+}
+
+.sidebar-search input:focus {
+    border-color: var(--primary-light);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+}
+
+.sidebar-search-wrap {
+    position: relative;
+}
+
+.sidebar-search-wrap svg {
+    position: absolute;
+    left: 12px; top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+    width: 16px; height: 16px;
+}
+
+/* Sidebar Nav */
+.sidebar-section {
+    padding: 8px 14px;
+}
+
+.sidebar-section-title {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    padding: 8px 10px 6px;
+}
+
+.nav-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 11px 14px;
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: var(--transition);
+    font-weight: 500;
+    font-size: 13.5px;
+    position: relative;
+}
+
+.nav-item:hover {
+    background: rgba(37, 99, 235, 0.08);
+    color: var(--text-primary);
+}
+
+.nav-item.active {
+    background: rgba(37, 99, 235, 0.12);
+    color: #fff;
+}
+
+.nav-item.active::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 50%;
+    transform: translateY(-50%);
+    width: 3px; height: 24px;
+    background: var(--gradient-primary);
+    border-radius: 0 3px 3px 0;
+}
+
+.nav-item svg {
+    width: 20px; height: 20px;
+    flex-shrink: 0;
+    opacity: 0.7;
+}
+
+.nav-item.active svg { opacity: 1; }
+
+.nav-badge {
+    margin-left: auto;
+    background: var(--danger);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 10px;
+    min-width: 20px;
+    text-align: center;
+}
+
+.nav-badge.warning {
+    background: var(--warning);
+    color: #000;
+}
+
+.nav-badge.info {
+    background: var(--primary);
+}
+
+/* Sidebar Footer */
+.sidebar-footer {
+    margin-top: auto;
+    padding: 16px 18px;
+    border-top: 1px solid var(--border);
+}
+
+.sidebar-user {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.sidebar-user:hover {
+    background: rgba(37, 99, 235, 0.08);
+}
+
+.sidebar-avatar {
+    width: 36px; height: 36px;
+    border-radius: 10px;
+    background: var(--gradient-purple);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 14px;
+    color: #fff;
+}
+
+.sidebar-user-name { font-weight: 600; font-size: 13px; }
+.sidebar-user-role { font-size: 11px; color: var(--text-muted); }
+
+/* ============ TOPBAR ============ */
+.topbar {
+    position: fixed;
+    top: 0;
+    left: var(--sidebar-width);
+    right: 0;
+    height: var(--topbar-height);
+    background: rgba(10, 15, 30, 0.85);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--border);
+    z-index: 90;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 28px;
+}
+
+.topbar-left {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.topbar-breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+.topbar-breadcrumb .crumb-active {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.topbar-breadcrumb .sep {
+    color: var(--text-muted);
+    opacity: 0.4;
+}
+
+.topbar-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Beijing Clock */
+.beijing-clock {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 7px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent);
+}
+
+.beijing-clock svg {
+    width: 16px; height: 16px;
+    color: var(--accent);
+}
+
+.beijing-clock .clock-label {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+/* Topbar Buttons */
+.topbar-btn {
+    width: 38px; height: 38px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: var(--transition);
+    position: relative;
+}
+
+.topbar-btn:hover {
+    background: var(--bg-card-hover);
+    color: var(--text-primary);
+    border-color: var(--border-light);
+}
+
+.topbar-btn .notif-dot {
+    position: absolute;
+    top: 6px; right: 6px;
+    width: 8px; height: 8px;
+    background: var(--danger);
+    border-radius: 50%;
+    border: 2px solid var(--bg-body);
+    animation: pulse-dot 2s infinite;
+}
+
+@keyframes pulse-dot {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.3); opacity: 0.7; }
+}
+
+/* Export Button */
+.btn-export {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 7px 14px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.btn-export:hover {
+    background: var(--bg-card-hover);
+    color: var(--text-primary);
+    border-color: var(--primary-light);
+}
+
+.btn-export svg { width: 15px; height: 15px; }
+
+/* ============ MAIN CONTENT ============ */
+.main {
+    margin-left: var(--sidebar-width);
+    margin-top: var(--topbar-height);
+    padding: 24px 28px;
+    min-height: calc(100vh - var(--topbar-height));
+    background: var(--bg-body);
+}
+
+/* Page Title */
+.page-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
+}
+
+.page-title h1 {
+    font-size: 24px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    color: var(--text-primary);
+}
+
+.page-title p {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+
+/* Quick Actions */
+.quick-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.btn-primary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    background: var(--gradient-primary);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius-sm);
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    transition: var(--transition);
+    box-shadow: 0 4px 16px rgba(37, 99, 235, 0.3);
+}
+
+.btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(37, 99, 235, 0.45);
+}
+
+.btn-secondary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.btn-secondary:hover {
+    background: var(--bg-card-hover);
+    color: var(--text-primary);
+    border-color: var(--border-light);
+}
+
+/* ============ STATUS CARDS ROW ============ */
+.status-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 18px;
+    margin-bottom: 24px;
+}
+
+.status-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 22px;
+    transition: var(--transition);
+    position: relative;
+    overflow: hidden;
+}
+
+.status-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+}
+
+.status-card.card-blue::before { background: var(--gradient-primary); }
+.status-card.card-green::before { background: var(--gradient-success); }
+.status-card.card-red::before { background: var(--gradient-danger); }
+.status-card.card-purple::before { background: var(--gradient-purple); }
+
+.status-card:hover {
+    border-color: var(--border-light);
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-card);
+}
+
+.status-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+}
+
+.status-card-icon {
+    width: 44px; height: 44px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+}
+
+.card-blue .status-card-icon { background: rgba(37, 99, 235, 0.12); color: var(--primary-light); }
+.card-green .status-card-icon { background: rgba(16, 185, 129, 0.12); color: var(--success); }
+.card-red .status-card-icon { background: rgba(239, 68, 68, 0.12); color: var(--danger); }
+.card-purple .status-card-icon { background: rgba(139, 92, 246, 0.12); color: var(--purple); }
+
+.status-card-trend {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 6px;
+}
+
+.trend-up { color: var(--success); background: rgba(16, 185, 129, 0.1); }
+.trend-down { color: var(--danger); background: rgba(239, 68, 68, 0.1); }
+.trend-flat { color: var(--warning); background: rgba(245, 158, 11, 0.1); }
+
+.status-card-value {
+    font-size: 32px;
+    font-weight: 800;
+    letter-spacing: -1px;
+    line-height: 1.1;
+}
+
+.card-blue .status-card-value { color: var(--primary-light); }
+.card-green .status-card-value { color: var(--success-light); }
+.card-red .status-card-value { color: var(--danger-light); }
+.card-purple .status-card-value { color: var(--purple); }
+
+.status-card-label {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    font-weight: 500;
+    margin-top: 4px;
+}
+
+.status-card-sparkline {
+    margin-top: 14px;
+    height: 36px;
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+}
+
+.sparkline-bar {
+    flex: 1;
+    border-radius: 3px 3px 0 0;
+    transition: var(--transition);
+    min-height: 4px;
+}
+
+.card-blue .sparkline-bar { background: rgba(37, 99, 235, 0.25); }
+.card-blue .sparkline-bar:nth-last-child(-n+2) { background: rgba(37, 99, 235, 0.6); }
+
+.card-green .sparkline-bar { background: rgba(16, 185, 129, 0.25); }
+.card-green .sparkline-bar:nth-last-child(-n+2) { background: rgba(16, 185, 129, 0.6); }
+
+.card-red .sparkline-bar { background: rgba(239, 68, 68, 0.25); }
+.card-red .sparkline-bar:nth-last-child(-n+2) { background: rgba(239, 68, 68, 0.6); }
+
+.card-purple .sparkline-bar { background: rgba(139, 92, 246, 0.25); }
+.card-purple .sparkline-bar:nth-last-child(-n+2) { background: rgba(139, 92, 246, 0.6); }
+
+/* ============ SYSTEM STATUS ROW ============ */
+.system-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+    margin-bottom: 24px;
+}
+
+.card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    transition: var(--transition);
+}
+
+.card:hover {
+    border-color: var(--border-light);
+}
+
+.card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 22px;
+    border-bottom: 1px solid var(--border);
+}
+
+.card-header-title {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.card-header-title svg {
+    width: 18px; height: 18px;
+    color: var(--primary-light);
+}
+
+.card-header-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.card-header-btn {
+    padding: 5px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: var(--radius-xs);
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.card-header-btn:hover {
+    background: var(--bg-card-hover);
+    color: var(--text-primary);
+}
+
+.card-header-btn.active {
+    background: rgba(37, 99, 235, 0.15);
+    color: var(--primary-light);
+    border-color: rgba(37, 99, 235, 0.3);
+}
+
+.card-body {
+    padding: 22px;
+}
+
+/* System Status Items */
+.sys-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+}
+
+.sys-item {
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 16px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    transition: var(--transition);
+}
+
+.sys-item:hover {
+    border-color: var(--border-light);
+}
+
+.sys-icon {
+    width: 42px; height: 42px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    flex-shrink: 0;
+}
+
+.sys-icon.gpu { background: rgba(37, 99, 235, 0.12); }
+.sys-icon.mem { background: rgba(139, 92, 246, 0.12); }
+.sys-icon.disk { background: rgba(245, 158, 11, 0.12); }
+.sys-icon.model { background: rgba(16, 185, 129, 0.12); }
+
+.sys-info { flex: 1; }
+.sys-label { font-size: 11.5px; color: var(--text-muted); font-weight: 500; }
+.sys-value { font-size: 15px; font-weight: 700; margin-top: 2px; }
+
+.sys-bar {
+    width: 100%;
+    height: 5px;
+    background: rgba(255,255,255,0.06);
+    border-radius: 3px;
+    margin-top: 8px;
+    overflow: hidden;
+}
+
+.sys-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 1s ease;
+}
+
+.sys-bar-fill.blue { background: var(--gradient-primary); }
+.sys-bar-fill.purple { background: var(--gradient-purple); }
+.sys-bar-fill.yellow { background: linear-gradient(90deg, var(--warning), var(--danger)); }
+.sys-bar-fill.green { background: var(--gradient-success); }
+
+/* Online dot */
+.online-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 6px;
+    animation: pulse-dot 2s infinite;
+}
+
+.online-dot.green { background: var(--success); }
+.online-dot.yellow { background: var(--warning); }
+.online-dot.red { background: var(--danger); }
+
+/* ============ CHARTS ROW ============ */
+.charts-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 18px;
+    margin-bottom: 24px;
+}
+
+.chart-wrap {
+    position: relative;
+    height: 280px;
+}
+
+.chart-wrap canvas {
+    width: 100% !important;
+    height: 100% !important;
+}
+
+/* ============ BOTTOM ROW ============ */
+.bottom-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+    margin-bottom: 24px;
+}
+
+/* Error Table */
+.error-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+.error-table th {
+    background: var(--bg-input);
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    padding: 10px 14px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+}
+
+.error-table td {
+    padding: 12px 14px;
+    font-size: 13px;
+    border-bottom: 1px solid rgba(30, 48, 80, 0.4);
+    vertical-align: middle;
+}
+
+.error-table tbody tr {
+    transition: var(--transition);
+    cursor: pointer;
+}
+
+.error-table tbody tr:hover {
+    background: rgba(37, 99, 235, 0.04);
+}
+
+.error-case-id {
+    font-weight: 600;
+    color: var(--primary-light);
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 12px;
+}
+
+.error-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 10px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.error-tag.critical { background: rgba(239, 68, 68, 0.12); color: var(--danger-light); }
+.error-tag.warning { background: rgba(245, 158, 11, 0.12); color: var(--warning-light); }
+.error-tag.low { background: rgba(100, 116, 139, 0.12); color: var(--text-muted); }
+
+.error-preview {
+    width: 36px; height: 36px;
+    border-radius: 6px;
+    background-size: cover;
+    background-position: center;
+    border: 1px solid var(--border);
+}
+
+.error-desc {
+    max-width: 200px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text-secondary);
+}
+
+.error-time {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+/* ============ FILTER BAR ============ */
+.filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 12px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.filter-chip:hover {
+    border-color: var(--primary-light);
+    color: var(--primary-light);
+}
+
+.filter-chip.active {
+    background: rgba(37, 99, 235, 0.12);
+    border-color: var(--primary-light);
+    color: var(--primary-light);
+}
+
+.filter-chip svg { width: 13px; height: 13px; }
+
+/* ============ DONUT LEGEND ============ */
+.donut-legend {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding-top: 8px;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.legend-dot {
+    width: 10px; height: 10px;
+    border-radius: 3px;
+    flex-shrink: 0;
+}
+
+.legend-label { font-size: 12.5px; color: var(--text-secondary); flex: 1; }
+.legend-value { font-size: 13px; font-weight: 700; }
+.legend-pct { font-size: 11px; color: var(--text-muted); margin-left: 4px; }
+
+/* ============ RECENT ACTIVITY ============ */
+.activity-list { display: flex; flex-direction: column; gap: 2px; }
+
+.activity-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 12px 0;
+    border-bottom: 1px solid rgba(30, 48, 80, 0.3);
+    transition: var(--transition);
+}
+
+.activity-item:last-child { border-bottom: none; }
+.activity-item:hover { background: rgba(37, 99, 235, 0.03); margin: 0 -22px; padding: 12px 22px; border-radius: var(--radius-sm); }
+
+.activity-dot-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding-top: 4px;
+}
+
+.activity-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.activity-dot.success { background: var(--success); box-shadow: 0 0 8px rgba(16, 185, 129, 0.4); }
+.activity-dot.danger { background: var(--danger); box-shadow: 0 0 8px rgba(239, 68, 68, 0.4); }
+.activity-dot.warning { background: var(--warning); box-shadow: 0 0 8px rgba(245, 158, 11, 0.4); }
+.activity-dot.info { background: var(--primary-light); box-shadow: 0 0 8px rgba(59, 130, 246, 0.4); }
+
+.activity-content { flex: 1; }
+.activity-title { font-size: 13px; font-weight: 600; }
+.activity-desc { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.activity-time { font-size: 11px; color: var(--text-muted); white-space: nowrap; padding-top: 2px; }
+
+/* ============ ANIMATIONS ============ */
+@keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-in {
+    animation: fadeInUp 0.5s ease-out forwards;
+    opacity: 0;
+}
+
+.delay-1 { animation-delay: 0.05s; }
+.delay-2 { animation-delay: 0.1s; }
+.delay-3 { animation-delay: 0.15s; }
+.delay-4 { animation-delay: 0.2s; }
+.delay-5 { animation-delay: 0.25s; }
+.delay-6 { animation-delay: 0.3s; }
+.delay-7 { animation-delay: 0.35s; }
+.delay-8 { animation-delay: 0.4s; }
+
+/* ============ SCROLLBAR ============ */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* ============ RESPONSIVE ============ */
+@media (max-width: 1400px) {
+    .status-grid { grid-template-columns: repeat(2, 1fr); }
+    .charts-row { grid-template-columns: 1fr; }
+    .bottom-row { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 768px) {
+    .sidebar { display: none; }
+    .main { margin-left: 0; }
+    .topbar { left: 0; }
+    .status-grid { grid-template-columns: 1fr; }
+    .system-row { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<!-- ========== SIDEBAR ========== -->
+<nav class="sidebar">
+    <div class="sidebar-logo">
+        <div class="sidebar-logo-icon">&#x1FAC0;</div>
+        <div>
+            <div class="sidebar-logo-text">EchoDVT</div>
+            <div class="sidebar-logo-sub">DVT Diagnosis AI</div>
+        </div>
+    </div>
+
+    <div class="sidebar-search">
+        <div class="sidebar-search-wrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" placeholder="Search cases, models...">
+        </div>
+    </div>
+
+    <div class="sidebar-section">
+        <div class="sidebar-section-title">Overview</div>
+        <div class="nav-item active">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+            Dashboard
+        </div>
+        <div class="nav-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            Case Browser
+            <span class="nav-badge info">376</span>
+        </div>
+    </div>
+
+    <div class="sidebar-section">
+        <div class="sidebar-section-title">Pipeline</div>
+        <div class="nav-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            Upload
+        </div>
+        <div class="nav-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            One-Click Analysis
+        </div>
+        <div class="nav-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+            YOLO Detection
+        </div>
+        <div class="nav-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a10 10 0 1 0 10 10 4 4 0 0 1-5-5 4 4 0 0 1-5-5"/><path d="M8.5 8.5v.01"/><path d="M16 15.5v.01"/><path d="M12 12v.01"/></svg>
+            SAM2 Segmentation
+        </div>
+    </div>
+
+    <div class="sidebar-section">
+        <div class="sidebar-section-title">Results</div>
+        <div class="nav-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+            DVT Diagnosis
+        </div>
+        <div class="nav-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+            Evaluation
+            <span class="nav-badge warning">3</span>
+        </div>
+        <div class="nav-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
+            Model Compare
+        </div>
+    </div>
+
+    <div class="sidebar-section">
+        <div class="sidebar-section-title">Training</div>
+        <div class="nav-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            LoRA Runs
+            <span class="nav-badge">4</span>
+        </div>
+        <div class="nav-item">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            Training History
+        </div>
+    </div>
+
+    <div class="sidebar-footer">
+        <div class="sidebar-user">
+            <div class="sidebar-avatar">OY</div>
+            <div>
+                <div class="sidebar-user-name">ouyangxinglong</div>
+                <div class="sidebar-user-role">Researcher</div>
+            </div>
+        </div>
+    </div>
+</nav>
+
+<!-- ========== TOPBAR ========== -->
+<header class="topbar">
+    <div class="topbar-left">
+        <div class="topbar-breadcrumb">
+            <span>EchoDVT</span>
+            <span class="sep">/</span>
+            <span class="crumb-active">Dashboard</span>
+        </div>
+    </div>
+    <div class="topbar-right">
+        <div class="beijing-clock">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <div>
+                <div class="clock-label">Beijing Time</div>
+                <div id="beijing-time">--:--:--</div>
+            </div>
+        </div>
+
+        <button class="btn-export">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Export
+        </button>
+
+        <button class="topbar-btn" title="Refresh">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+        </button>
+
+        <button class="topbar-btn" title="Notifications">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            <span class="notif-dot"></span>
+        </button>
+
+        <button class="topbar-btn" title="Settings">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 0 1 0 4h-.09c-.658.003-1.25.396-1.51 1z"/></svg>
+        </button>
+    </div>
+</header>
+
+<!-- ========== MAIN CONTENT ========== -->
+<main class="main">
+
+    <!-- Page Title -->
+    <div class="page-title-row animate-in delay-1">
+        <div class="page-title">
+            <h1>Dashboard Overview</h1>
+            <p>EchoDVT system monitoring and case analytics</p>
+        </div>
+        <div class="quick-actions">
+            <button class="btn-primary">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                Upload New Case
+            </button>
+            <button class="btn-secondary">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                Run Pipeline
+            </button>
+        </div>
+    </div>
+
+    <!-- ===== STATUS CARDS ===== -->
+    <div class="status-grid">
+        <div class="status-card card-blue animate-in delay-2">
+            <div class="status-card-header">
+                <div class="status-card-icon">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                </div>
+                <div class="status-card-trend trend-up">+12 &uarr;</div>
+            </div>
+            <div class="status-card-value">376</div>
+            <div class="status-card-label">Total Cases (300 train / 76 val)</div>
+            <div class="status-card-sparkline">
+                <div class="sparkline-bar" style="height:40%"></div>
+                <div class="sparkline-bar" style="height:55%"></div>
+                <div class="sparkline-bar" style="height:45%"></div>
+                <div class="sparkline-bar" style="height:60%"></div>
+                <div class="sparkline-bar" style="height:50%"></div>
+                <div class="sparkline-bar" style="height:70%"></div>
+                <div class="sparkline-bar" style="height:65%"></div>
+                <div class="sparkline-bar" style="height:80%"></div>
+                <div class="sparkline-bar" style="height:75%"></div>
+                <div class="sparkline-bar" style="height:90%"></div>
+                <div class="sparkline-bar" style="height:85%"></div>
+                <div class="sparkline-bar" style="height:100%"></div>
+            </div>
+        </div>
+
+        <div class="status-card card-green animate-in delay-3">
+            <div class="status-card-header">
+                <div class="status-card-icon">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                </div>
+                <div class="status-card-trend trend-up">+2.1% &uarr;</div>
+            </div>
+            <div class="status-card-value">85.39%</div>
+            <div class="status-card-label">Best Val Mean Dice (r8 model)</div>
+            <div class="status-card-sparkline">
+                <div class="sparkline-bar" style="height:50%"></div>
+                <div class="sparkline-bar" style="height:60%"></div>
+                <div class="sparkline-bar" style="height:55%"></div>
+                <div class="sparkline-bar" style="height:65%"></div>
+                <div class="sparkline-bar" style="height:70%"></div>
+                <div class="sparkline-bar" style="height:75%"></div>
+                <div class="sparkline-bar" style="height:72%"></div>
+                <div class="sparkline-bar" style="height:80%"></div>
+                <div class="sparkline-bar" style="height:78%"></div>
+                <div class="sparkline-bar" style="height:85%"></div>
+                <div class="sparkline-bar" style="height:82%"></div>
+                <div class="sparkline-bar" style="height:90%"></div>
+            </div>
+        </div>
+
+        <div class="status-card card-red animate-in delay-4">
+            <div class="status-card-header">
+                <div class="status-card-icon">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                </div>
+                <div class="status-card-trend trend-down">-3 &darr;</div>
+            </div>
+            <div class="status-card-value">8</div>
+            <div class="status-card-label">Error Cases (Low Vein Dice)</div>
+            <div class="status-card-sparkline">
+                <div class="sparkline-bar" style="height:90%"></div>
+                <div class="sparkline-bar" style="height:80%"></div>
+                <div class="sparkline-bar" style="height:85%"></div>
+                <div class="sparkline-bar" style="height:70%"></div>
+                <div class="sparkline-bar" style="height:75%"></div>
+                <div class="sparkline-bar" style="height:60%"></div>
+                <div class="sparkline-bar" style="height:65%"></div>
+                <div class="sparkline-bar" style="height:50%"></div>
+                <div class="sparkline-bar" style="height:55%"></div>
+                <div class="sparkline-bar" style="height:40%"></div>
+                <div class="sparkline-bar" style="height:35%"></div>
+                <div class="sparkline-bar" style="height:30%"></div>
+            </div>
+        </div>
+
+        <div class="status-card card-purple animate-in delay-5">
+            <div class="status-card-header">
+                <div class="status-card-icon">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                </div>
+                <div class="status-card-trend trend-flat">Stable</div>
+            </div>
+            <div class="status-card-value">4</div>
+            <div class="status-card-label">LoRA Runs Completed</div>
+            <div class="status-card-sparkline">
+                <div class="sparkline-bar" style="height:60%"></div>
+                <div class="sparkline-bar" style="height:65%"></div>
+                <div class="sparkline-bar" style="height:70%"></div>
+                <div class="sparkline-bar" style="height:75%"></div>
+                <div class="sparkline-bar" style="height:80%"></div>
+                <div class="sparkline-bar" style="height:85%"></div>
+                <div class="sparkline-bar" style="height:82%"></div>
+                <div class="sparkline-bar" style="height:88%"></div>
+                <div class="sparkline-bar" style="height:85%"></div>
+                <div class="sparkline-bar" style="height:90%"></div>
+                <div class="sparkline-bar" style="height:92%"></div>
+                <div class="sparkline-bar" style="height:95%"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== SYSTEM STATUS + SAMPLE STATS ===== -->
+    <div class="system-row">
+        <!-- System Status -->
+        <div class="card animate-in delay-5">
+            <div class="card-header">
+                <div class="card-header-title">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                    System Status
+                </div>
+                <div class="card-header-actions">
+                    <button class="card-header-btn active">Live</button>
+                    <button class="card-header-btn">History</button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="sys-grid">
+                    <div class="sys-item">
+                        <div class="sys-icon gpu">&#x1F4A1;</div>
+                        <div class="sys-info">
+                            <div class="sys-label">GPU 0 (A100 40GB)</div>
+                            <div class="sys-value"><span class="online-dot green"></span>28.3 GB / 40 GB</div>
+                            <div class="sys-bar"><div class="sys-bar-fill blue" style="width:71%"></div></div>
+                        </div>
+                    </div>
+                    <div class="sys-item">
+                        <div class="sys-icon gpu">&#x1F4A1;</div>
+                        <div class="sys-info">
+                            <div class="sys-label">GPU 1 (A100 40GB)</div>
+                            <div class="sys-value"><span class="online-dot green"></span>Idle</div>
+                            <div class="sys-bar"><div class="sys-bar-fill blue" style="width:5%"></div></div>
+                        </div>
+                    </div>
+                    <div class="sys-item">
+                        <div class="sys-icon mem">&#x1F9E0;</div>
+                        <div class="sys-info">
+                            <div class="sys-label">System Memory</div>
+                            <div class="sys-value">48.2 GB / 128 GB</div>
+                            <div class="sys-bar"><div class="sys-bar-fill purple" style="width:38%"></div></div>
+                        </div>
+                    </div>
+                    <div class="sys-item">
+                        <div class="sys-icon disk">&#x1F4BE;</div>
+                        <div class="sys-info">
+                            <div class="sys-label">Disk Usage (/data1)</div>
+                            <div class="sys-value"><span class="online-dot yellow"></span>1.8 TB / 3.6 TB</div>
+                            <div class="sys-bar"><div class="sys-bar-fill yellow" style="width:50%"></div></div>
+                        </div>
+                    </div>
+                    <div class="sys-item" style="grid-column: span 2;">
+                        <div class="sys-icon model">&#x1F916;</div>
+                        <div class="sys-info">
+                            <div class="sys-label">Loaded Models</div>
+                            <div class="sys-value"><span class="online-dot green"></span>YOLO v8 + SAM2-Large + LoRA-r8</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sample Statistics -->
+        <div class="card animate-in delay-6">
+            <div class="card-header">
+                <div class="card-header-title">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                    Sample Statistics
+                </div>
+                <div class="card-header-actions">
+                    <button class="card-header-btn active">All</button>
+                    <button class="card-header-btn">Train</button>
+                    <button class="card-header-btn">Val</button>
+                </div>
+            </div>
+            <div class="card-body" style="display:flex; gap:24px; align-items:center;">
+                <div style="flex:1; max-width: 200px; margin: 0 auto;">
+                    <canvas id="donutChart"></canvas>
+                </div>
+                <div class="donut-legend" style="flex:1;">
+                    <div class="legend-item">
+                        <div class="legend-dot" style="background:var(--success)"></div>
+                        <span class="legend-label">Normal (Healthy)</span>
+                        <span class="legend-value" style="color:var(--success)">234</span>
+                        <span class="legend-pct">62.2%</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-dot" style="background:var(--danger)"></div>
+                        <span class="legend-label">DVT Positive</span>
+                        <span class="legend-value" style="color:var(--danger)">96</span>
+                        <span class="legend-pct">25.5%</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-dot" style="background:var(--warning)"></div>
+                        <span class="legend-label">Suspicious</span>
+                        <span class="legend-value" style="color:var(--warning)">38</span>
+                        <span class="legend-pct">10.1%</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-dot" style="background:var(--text-muted)"></div>
+                        <span class="legend-label">Unprocessed</span>
+                        <span class="legend-value" style="color:var(--text-muted)">8</span>
+                        <span class="legend-pct">2.1%</span>
+                    </div>
+                    <div style="margin-top:8px; padding-top:12px; border-top:1px solid var(--border);">
+                        <div style="display:flex; justify-content:space-between;">
+                            <span style="font-size:12px; color:var(--text-muted);">Avg frames/case</span>
+                            <span style="font-size:13px; font-weight:700;">28.4</span>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; margin-top:6px;">
+                            <span style="font-size:12px; color:var(--text-muted);">Total frames</span>
+                            <span style="font-size:13px; font-weight:700;">10,678</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== CHARTS ROW ===== -->
+    <div class="charts-row">
+        <!-- Training Curves -->
+        <div class="card animate-in delay-6">
+            <div class="card-header">
+                <div class="card-header-title">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                    Training Curves — LoRA Runs Comparison
+                </div>
+                <div class="card-header-actions">
+                    <div class="filter-bar">
+                        <span class="filter-chip active">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                            Val Dice
+                        </span>
+                        <span class="filter-chip">Train Loss</span>
+                        <span class="filter-chip">Vein Dice</span>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="chart-wrap">
+                    <canvas id="trainingChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Artery vs Vein Performance -->
+        <div class="card animate-in delay-7">
+            <div class="card-header">
+                <div class="card-header-title">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+                    Artery vs Vein
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="chart-wrap">
+                    <canvas id="arteryVeinChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===== BOTTOM ROW: Error Cases + Activity ===== -->
+    <div class="bottom-row">
+        <!-- Error Cases Table -->
+        <div class="card animate-in delay-7">
+            <div class="card-header">
+                <div class="card-header-title">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    Recent Error Cases
+                </div>
+                <div class="card-header-actions">
+                    <div class="filter-bar">
+                        <span class="filter-chip active">All</span>
+                        <span class="filter-chip">Critical</span>
+                        <span class="filter-chip">Warning</span>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body" style="padding:0;">
+                <table class="error-table">
+                    <thead>
+                        <tr>
+                            <th>Case</th>
+                            <th>Severity</th>
+                            <th>Issue</th>
+                            <th>Vein Dice</th>
+                            <th>Time</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><span class="error-case-id">val_032</span></td>
+                            <td><span class="error-tag critical">&#x26A0; Critical</span></td>
+                            <td class="error-desc">Vein mask completely missing in frames 12-28</td>
+                            <td style="color:var(--danger); font-weight:700;">0.12</td>
+                            <td class="error-time">2 min ago</td>
+                        </tr>
+                        <tr>
+                            <td><span class="error-case-id">val_058</span></td>
+                            <td><span class="error-tag critical">&#x26A0; Critical</span></td>
+                            <td class="error-desc">YOLO failed to detect vein region</td>
+                            <td style="color:var(--danger); font-weight:700;">0.08</td>
+                            <td class="error-time">15 min ago</td>
+                        </tr>
+                        <tr>
+                            <td><span class="error-case-id">val_071</span></td>
+                            <td><span class="error-tag warning">&#x26A0; Warning</span></td>
+                            <td class="error-desc">Low vein dice, possible shadow artifact</td>
+                            <td style="color:var(--warning); font-weight:700;">0.41</td>
+                            <td class="error-time">1 hr ago</td>
+                        </tr>
+                        <tr>
+                            <td><span class="error-case-id">val_015</span></td>
+                            <td><span class="error-tag warning">&#x26A0; Warning</span></td>
+                            <td class="error-desc">Artery/vein label swap suspected (frames 5-8)</td>
+                            <td style="color:var(--warning); font-weight:700;">0.38</td>
+                            <td class="error-time">2 hr ago</td>
+                        </tr>
+                        <tr>
+                            <td><span class="error-case-id">val_044</span></td>
+                            <td><span class="error-tag low">Info</span></td>
+                            <td class="error-desc">Borderline vein dice, probe angle issue</td>
+                            <td style="color:var(--text-muted); font-weight:700;">0.55</td>
+                            <td class="error-time">5 hr ago</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Recent Activity -->
+        <div class="card animate-in delay-8">
+            <div class="card-header">
+                <div class="card-header-title">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    Recent Activity
+                </div>
+                <div class="card-header-actions">
+                    <button class="card-header-btn">View All</button>
+                </div>
+            </div>
+            <div class="card-body">
+                <div class="activity-list">
+                    <div class="activity-item">
+                        <div class="activity-dot-wrap"><div class="activity-dot success"></div></div>
+                        <div class="activity-content">
+                            <div class="activity-title">LoRA Run #4 Completed</div>
+                            <div class="activity-desc">r4, lr=1e-4, vein_weight=3.0 &mdash; Best dice: 0.8491 @ epoch 15</div>
+                        </div>
+                        <div class="activity-time">16 min ago</div>
+                    </div>
+                    <div class="activity-item">
+                        <div class="activity-dot-wrap"><div class="activity-dot success"></div></div>
+                        <div class="activity-content">
+                            <div class="activity-title">LoRA Run #3 Completed</div>
+                            <div class="activity-desc">r4, lr=1e-4, vein_weight=2.5 &mdash; Best dice: 0.8454 @ epoch 15</div>
+                        </div>
+                        <div class="activity-time">55 min ago</div>
+                    </div>
+                    <div class="activity-item">
+                        <div class="activity-dot-wrap"><div class="activity-dot danger"></div></div>
+                        <div class="activity-content">
+                            <div class="activity-title">Overfitting Detected</div>
+                            <div class="activity-desc">Run #3 & #4: val dice dropped after epoch 15, train dice still rising</div>
+                        </div>
+                        <div class="activity-time">1 hr ago</div>
+                    </div>
+                    <div class="activity-item">
+                        <div class="activity-dot-wrap"><div class="activity-dot info"></div></div>
+                        <div class="activity-content">
+                            <div class="activity-title">Pipeline Executed</div>
+                            <div class="activity-desc">Full YOLO+SAM2+Diagnosis on val_023 &mdash; DVT: Negative</div>
+                        </div>
+                        <div class="activity-time">3 hr ago</div>
+                    </div>
+                    <div class="activity-item">
+                        <div class="activity-dot-wrap"><div class="activity-dot warning"></div></div>
+                        <div class="activity-content">
+                            <div class="activity-title">GPU Memory Warning</div>
+                            <div class="activity-desc">GPU 0 reached 38.5GB during batch inference</div>
+                        </div>
+                        <div class="activity-time">5 hr ago</div>
+                    </div>
+                    <div class="activity-item">
+                        <div class="activity-dot-wrap"><div class="activity-dot success"></div></div>
+                        <div class="activity-content">
+                            <div class="activity-title">Video Uploaded</div>
+                            <div class="activity-desc">case_new_001.mp4 (245 MB, 30fps, 156 frames extracted)</div>
+                        </div>
+                        <div class="activity-time">Yesterday</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</main>
+
+<script>
+// ============ BEIJING TIME CLOCK ============
+function updateBeijingTime() {
+    const now = new Date();
+    const beijing = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Shanghai' }));
+    const h = String(beijing.getHours()).padStart(2, '0');
+    const m = String(beijing.getMinutes()).padStart(2, '0');
+    const s = String(beijing.getSeconds()).padStart(2, '0');
+    document.getElementById('beijing-time').textContent = `${h}:${m}:${s}`;
+}
+updateBeijingTime();
+setInterval(updateBeijingTime, 1000);
+
+// ============ CHART CONFIG ============
+const chartFont = { family: "'Inter', sans-serif" };
+const gridColor = 'rgba(30, 48, 80, 0.5)';
+const tickColor = '#64748b';
+
+Chart.defaults.font.family = chartFont.family;
+Chart.defaults.color = tickColor;
+
+// ============ DONUT CHART ============
+new Chart(document.getElementById('donutChart'), {
+    type: 'doughnut',
+    data: {
+        labels: ['Normal', 'DVT+', 'Suspicious', 'Unprocessed'],
+        datasets: [{
+            data: [234, 96, 38, 8],
+            backgroundColor: ['#10b981', '#ef4444', '#f59e0b', '#475569'],
+            borderColor: '#1e293b',
+            borderWidth: 3,
+            hoverOffset: 8,
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        cutout: '68%',
+        plugins: {
+            legend: { display: false },
+            tooltip: {
+                backgroundColor: '#1e293b',
+                borderColor: '#334155',
+                borderWidth: 1,
+                titleFont: { weight: '600' },
+                padding: 12,
+                cornerRadius: 8,
+            }
+        }
+    }
+});
+
+// ============ TRAINING CURVES ============
+const epochs_25 = Array.from({length: 5}, (_, i) => (i + 1) * 5);
+const epochs_50 = Array.from({length: 10}, (_, i) => (i + 1) * 5);
+
+new Chart(document.getElementById('trainingChart'), {
+    type: 'line',
+    data: {
+        labels: epochs_50,
+        datasets: [
+            {
+                label: 'Run2 r8 lr3e-4 (Best)',
+                data: [0.804, 0.832, 0.822, 0.854, null, null, null, null, null, null],
+                borderColor: '#22c55e',
+                backgroundColor: 'rgba(34, 197, 94, 0.08)',
+                borderWidth: 3,
+                pointRadius: 6,
+                pointHoverRadius: 8,
+                pointBackgroundColor: '#22c55e',
+                pointBorderColor: '#1e293b',
+                pointBorderWidth: 2,
+                fill: true,
+                tension: 0.35,
+            },
+            {
+                label: 'Run1 r4 lr5e-4',
+                data: [0.793, 0.820, 0.834, 0.848, 0.840, null, null, null, null, null],
+                borderColor: '#3b82f6',
+                backgroundColor: 'rgba(59, 130, 246, 0.05)',
+                borderWidth: 2,
+                pointRadius: 5,
+                pointHoverRadius: 7,
+                pointBackgroundColor: '#3b82f6',
+                pointBorderColor: '#1e293b',
+                pointBorderWidth: 2,
+                fill: true,
+                tension: 0.35,
+            },
+            {
+                label: 'Run4 r4 vw=3.0 (New)',
+                data: [0.806, 0.841, 0.849, 0.838, 0.832, 0.833, 0.832, 0.835, 0.833, 0.834],
+                borderColor: '#f59e0b',
+                backgroundColor: 'rgba(245, 158, 11, 0.05)',
+                borderWidth: 2,
+                pointRadius: 4,
+                pointHoverRadius: 7,
+                pointBackgroundColor: '#f59e0b',
+                pointBorderColor: '#1e293b',
+                pointBorderWidth: 2,
+                fill: true,
+                tension: 0.35,
+                borderDash: [6, 3],
+            },
+            {
+                label: 'Run3 r4 vw=2.5 (New)',
+                data: [0.806, 0.793, 0.845, 0.837, 0.811, 0.824, 0.825, 0.816, 0.824, 0.830],
+                borderColor: '#ef4444',
+                backgroundColor: 'rgba(239, 68, 68, 0.05)',
+                borderWidth: 2,
+                pointRadius: 4,
+                pointHoverRadius: 7,
+                pointBackgroundColor: '#ef4444',
+                pointBorderColor: '#1e293b',
+                pointBorderWidth: 2,
+                fill: true,
+                tension: 0.35,
+                borderDash: [6, 3],
+            },
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { intersect: false, mode: 'index' },
+        scales: {
+            x: {
+                title: { display: true, text: 'Epoch', color: tickColor, font: { weight: '600' } },
+                grid: { color: gridColor },
+                ticks: { color: tickColor }
+            },
+            y: {
+                title: { display: true, text: 'Val Mean Dice', color: tickColor, font: { weight: '600' } },
+                grid: { color: gridColor },
+                ticks: { color: tickColor },
+                min: 0.78,
+                max: 0.88,
+            }
+        },
+        plugins: {
+            legend: {
+                position: 'bottom',
+                labels: { usePointStyle: true, pointStyle: 'circle', padding: 20, font: { size: 12, weight: '500' } }
+            },
+            tooltip: {
+                backgroundColor: '#1e293b',
+                borderColor: '#334155',
+                borderWidth: 1,
+                padding: 14,
+                cornerRadius: 10,
+                titleFont: { weight: '700', size: 13 },
+                bodyFont: { size: 12 },
+                callbacks: {
+                    label: ctx => `${ctx.dataset.label}: ${(ctx.parsed.y * 100).toFixed(1)}%`
+                }
+            }
+        }
+    }
+});
+
+// ============ ARTERY vs VEIN BAR CHART ============
+new Chart(document.getElementById('arteryVeinChart'), {
+    type: 'bar',
+    data: {
+        labels: ['Run1\nr4/lr5e-4', 'Run2\nr8/lr3e-4', 'Run3\nvw=2.5', 'Run4\nvw=3.0'],
+        datasets: [
+            {
+                label: 'Artery Dice',
+                data: [0.915, 0.917, 0.914, 0.916],
+                backgroundColor: 'rgba(239, 68, 68, 0.7)',
+                borderColor: '#ef4444',
+                borderWidth: 1,
+                borderRadius: 6,
+                barPercentage: 0.7,
+            },
+            {
+                label: 'Vein Dice',
+                data: [0.782, 0.791, 0.776, 0.782],
+                backgroundColor: 'rgba(34, 197, 94, 0.7)',
+                borderColor: '#22c55e',
+                borderWidth: 1,
+                borderRadius: 6,
+                barPercentage: 0.7,
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+            x: {
+                grid: { color: gridColor },
+                ticks: { color: tickColor, font: { size: 11 } }
+            },
+            y: {
+                grid: { color: gridColor },
+                ticks: { color: tickColor, callback: v => (v * 100).toFixed(0) + '%' },
+                min: 0.6,
+                max: 1.0,
+                title: { display: true, text: 'Best Val Dice', color: tickColor, font: { weight: '600' } }
+            }
+        },
+        plugins: {
+            legend: {
+                position: 'bottom',
+                labels: { usePointStyle: true, pointStyle: 'circle', padding: 16, font: { size: 12, weight: '500' } }
+            },
+            tooltip: {
+                backgroundColor: '#1e293b',
+                borderColor: '#334155',
+                borderWidth: 1,
+                padding: 12,
+                cornerRadius: 8,
+                callbacks: {
+                    label: ctx => `${ctx.dataset.label}: ${(ctx.parsed.y * 100).toFixed(1)}%`
+                }
+            }
+        }
+    }
+});
+
+// ============ SPARKLINE HOVER EFFECT ============
+document.querySelectorAll('.sparkline-bar').forEach(bar => {
+    bar.addEventListener('mouseenter', () => { bar.style.opacity = '1'; bar.style.transform = 'scaleY(1.15)'; });
+    bar.addEventListener('mouseleave', () => { bar.style.opacity = ''; bar.style.transform = ''; });
+});
+
+// ============ NAV ITEM CLICK ============
+document.querySelectorAll('.nav-item').forEach(item => {
+    item.addEventListener('click', () => {
+        document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+        item.classList.add('active');
+    });
+});
+
+// ============ FILTER CHIP CLICK ============
+document.querySelectorAll('.filter-bar').forEach(bar => {
+    bar.querySelectorAll('.filter-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+            bar.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('active'));
+            chip.classList.add('active');
+        });
+    });
+});
+</script>
+
+</body>
+</html>
