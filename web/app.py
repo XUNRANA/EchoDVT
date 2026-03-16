@@ -1,20 +1,14 @@
 #!/usr/bin/env python3
 """
-EchoDVT 超声诊断系统 — Gradio Web 应用入口
+EchoDVT 超声诊断系统 — Gradio Web 应用入口 (Dashboard 版)
 
-用法:
-    cd EchoDVT/web
-    python app.py
-
-    # 或指定端口和共享
-    python app.py --port 7860 --share
+布局: 使用 CSS Grid 实现侧边栏 + Gradio Tabs 内容区
 """
 
 import sys
 import argparse
 from pathlib import Path
 
-# 添加项目路径
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "sam2"))
@@ -22,12 +16,12 @@ sys.path.insert(0, str(PROJECT_ROOT / "yolo"))
 
 import gradio as gr
 
+from tabs.dashboard import build_dashboard_panel, _refresh_dashboard
 from tabs.upload import build_upload_tab
 from tabs.detection import build_detection_tab
 from tabs.segmentation import build_segmentation_tab
 from tabs.diagnosis import build_diagnosis_tab
 from tabs.evaluation import build_evaluation_tab
-from tabs.comparison import build_comparison_tab
 from tabs.pipeline import build_pipeline_tab
 
 
@@ -35,12 +29,11 @@ CSS_PATH = Path(__file__).parent / "assets" / "custom.css"
 
 
 def build_app():
-    """构建完整的 Gradio 应用"""
+    """构建 Dashboard 风格的 Gradio 应用"""
     custom_css = ""
     if CSS_PATH.exists():
         custom_css = CSS_PATH.read_text(encoding="utf-8")
 
-    # ★ Gradio 6.x: theme 和 css 在 launch() 中传入
     theme = gr.themes.Base(
         primary_hue=gr.themes.colors.blue,
         secondary_hue=gr.themes.colors.cyan,
@@ -48,24 +41,34 @@ def build_app():
         font=gr.themes.GoogleFont("Inter"),
     )
 
-    with gr.Blocks(title="EchoDVT 超声诊断系统") as app:
+    with gr.Blocks(title="EchoDVT Dashboard") as app:
 
-        # ===== 顶部标题 =====
+        # ===== 顶部栏 (纯 HTML + JS 时钟) =====
         gr.HTML("""
-        <div class="app-header">
-            <div style="display:flex; align-items:center; gap:16px;">
-                <div style="font-size:42px; line-height:1;">🫀</div>
-                <div>
-                    <h1 style="margin:0; font-size:26px; font-weight:800; color:#fff;
-                               letter-spacing:-0.5px;">
-                        EchoDVT — 超声深静脉血栓智能诊断系统
-                    </h1>
-                    <p style="margin:4px 0 0 0; font-size:13px; color:rgba(255,255,255,0.75);">
-                        YOLO 血管检测 &rarr; SAM2 LoRA 视频分割 &rarr; 19 维特征分析 &rarr; DVT 智能判断
-                    </p>
-                </div>
+        <div class="topbar">
+            <div class="topbar-left">
+                <span class="topbar-logo">🫀</span>
+                <h1 class="topbar-title">EchoDVT — DVT Intelligent Diagnosis</h1>
+            </div>
+            <div class="topbar-right">
+                <div class="topbar-clock" id="beijing-clock">--:--:--</div>
+                <div class="topbar-badge" title="Notifications">🔔<span class="notification-dot"></span></div>
             </div>
         </div>
+        <script>
+        (function(){
+            function tick(){
+                var d = new Date();
+                var utc = d.getTime() + d.getTimezoneOffset()*60000;
+                var bj = new Date(utc + 8*3600000);
+                var ds = bj.getFullYear()+'-'+String(bj.getMonth()+1).padStart(2,'0')+'-'+String(bj.getDate()).padStart(2,'0');
+                var ts = String(bj.getHours()).padStart(2,'0')+':'+String(bj.getMinutes()).padStart(2,'0')+':'+String(bj.getSeconds()).padStart(2,'0');
+                var el = document.getElementById('beijing-clock');
+                if(el) el.innerHTML='<span class=\"clock-date\">'+ds+'</span> '+ts;
+            }
+            tick(); setInterval(tick,1000);
+        })();
+        </script>
         """)
 
         # ===== 全局状态 =====
@@ -83,43 +86,43 @@ def build_app():
             "artery_areas": [],
         })
 
-        # ===== Tab 布局 =====
-        with gr.Tabs() as tabs:
-            with gr.Tab("📤 数据输入", id="upload"):
+        # ===== 使用 Gradio 原生 Tabs，用 CSS 改造成侧边栏外观 =====
+        with gr.Tabs(elem_classes=["sidebar-tabs"]) as tabs:
+            with gr.Tab("📊 Dashboard", id="dashboard", elem_classes=["sidebar-tab-item"]):
+                dash_outs = build_dashboard_panel(state)
+
+            with gr.Tab("📤 Data Input", id="upload", elem_classes=["sidebar-tab-item"]):
                 build_upload_tab(state)
 
-            with gr.Tab("🚀 一键分析", id="pipeline"):
+            with gr.Tab("🚀 One-Click", id="pipeline", elem_classes=["sidebar-tab-item"]):
                 build_pipeline_tab(state)
 
-            with gr.Tab("🎯 YOLO 检测", id="detection"):
+            with gr.Tab("🎯 Detection", id="detection", elem_classes=["sidebar-tab-item"]):
                 build_detection_tab(state)
 
-            with gr.Tab("🔬 SAM2 分割", id="segmentation"):
+            with gr.Tab("🔬 Segmentation", id="segmentation", elem_classes=["sidebar-tab-item"]):
                 build_segmentation_tab(state)
 
-            with gr.Tab("🩺 诊断报告", id="diagnosis"):
+            with gr.Tab("🩺 Diagnosis", id="diagnosis", elem_classes=["sidebar-tab-item"]):
                 build_diagnosis_tab(state)
 
-            with gr.Tab("📊 定量评估", id="evaluation"):
+            with gr.Tab("📈 Evaluation", id="evaluation", elem_classes=["sidebar-tab-item"]):
                 build_evaluation_tab(state)
 
-            with gr.Tab("⚖️ 模型对比", id="comparison"):
-                build_comparison_tab(state)
-
-        # ===== 底部 =====
-        gr.HTML("""
-        <div style="text-align:center; padding:16px; color:#64748b; font-size:12px; margin-top:12px;
-                    border-top:1px solid #1e293b;">
-            EchoDVT v2.0 &mdash; YOLO + SAM2 LoRA + MFP + 19-Feature Classification
-        </div>
-        """)
+        # Dashboard 自动刷新
+        dash_status, dash_dataset, dash_recent, dash_errors, dash_chart, dash_refresh = dash_outs
+        app.load(
+            fn=_refresh_dashboard,
+            inputs=[state],
+            outputs=[dash_status, dash_dataset, dash_recent, dash_errors, dash_chart],
+        )
 
     return app, custom_css, theme
 
 
 def main():
-    parser = argparse.ArgumentParser(description="EchoDVT Web 诊断系统")
-    parser.add_argument("--port", type=int, default=7860)
+    parser = argparse.ArgumentParser(description="EchoDVT Dashboard")
+    parser.add_argument("--port", type=int, default=8888)
     parser.add_argument("--share", action="store_true", default=False)
     parser.add_argument("--server-name", type=str, default="0.0.0.0")
     args = parser.parse_args()
@@ -132,8 +135,8 @@ def main():
         show_error=True,
         css=css,
         theme=theme,
-        max_file_size="2gb",      # ★ 允许上传最大 2GB 的视频文件
-        allowed_paths=[           # ★ 允许 Gradio 从这些路径提供文件
+        max_file_size="2gb",
+        allowed_paths=[
             str(PROJECT_ROOT),
             "/tmp",
             "/data1/ouyangxinglong",
