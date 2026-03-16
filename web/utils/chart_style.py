@@ -44,7 +44,28 @@ def get_chinese_font():
 
 
 def setup_matplotlib():
-    """统一配置 Matplotlib 暗黑主题 + 中文字体"""
+    """配置 Matplotlib 全局样式 (用于极简风格大屏)"""
+    # 基础风格
+    plt.style.use('dark_background')
+    
+    # 覆盖关键颜色
+    plt.rcParams.update({
+        'figure.facecolor': 'none',     # 完全透明，配合 glassmorphism
+        'axes.facecolor': 'none',       # 完全透明
+        'axes.edgecolor': 'none',       # 隐藏外部边框
+        'axes.grid': True,
+        'grid.color': (1.0, 1.0, 1.0, 0.05), # 极淡的网格线
+        'grid.linestyle': '--',
+        'grid.linewidth': 0.5,
+        'text.color': '#e2e8f0',        # 柔和主文本颜色 (slate-200)
+        "xtick.color": "#64748b",
+        "ytick.color": "#64748b",
+        "legend.facecolor": "#1e293b",
+        "legend.edgecolor": "#334155",
+        "legend.labelcolor": "#e2e8f0",
+    })
+
+    # 中文字体自动检测与回退
     zh_font = get_chinese_font()
     if zh_font:
         plt.rcParams["font.sans-serif"] = [zh_font, "DejaVu Sans"]
@@ -53,22 +74,6 @@ def setup_matplotlib():
         # 没有中文字体时，关掉字体警告并使用英文
         warnings.filterwarnings("ignore", category=UserWarning, module="matplotlib")
         plt.rcParams["font.sans-serif"] = ["DejaVu Sans"]
-
-    # 全局暗色主题
-    plt.rcParams.update({
-        "figure.facecolor": "#0f172a",
-        "axes.facecolor": "#0f172a",
-        "axes.edgecolor": "#334155",
-        "axes.labelcolor": "#94a3b8",
-        "text.color": "#e2e8f0",
-        "xtick.color": "#64748b",
-        "ytick.color": "#64748b",
-        "grid.color": "#475569",
-        "grid.alpha": 0.2,
-        "legend.facecolor": "#1e293b",
-        "legend.edgecolor": "#334155",
-        "legend.labelcolor": "#e2e8f0",
-    })
 
 
 def style_axis(ax, title: str = "", xlabel: str = "", ylabel: str = ""):
