@@ -1,6 +1,6 @@
 """
 模块 2: YOLO 检测展示
-- 加载 YOLO 模型（支持选择不同训练步骤的权重）
+- 固定使用最优 YOLO 权重
 - 在首帧上运行检测
 - 可视化 artery/vein 检测框（含置信度、推断/修正标记）
 """
@@ -9,52 +9,28 @@ import gradio as gr
 import cv2
 import numpy as np
 from pathlib import Path
-from typing import Dict, Optional
-import json
 import sys
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "yolo"))
 
+from web.services.inference import DEFAULT_YOLO_MODEL
 from web.utils.visualization import draw_detection_boxes, bgr_to_rgb
 
 
-def _find_yolo_weights() -> Dict[str, str]:
-    """搜索所有可用的 YOLO 权重"""
-    weights = {}
-    search_dirs = [
-        PROJECT_ROOT / "yolo" / "runs",
-        PROJECT_ROOT / "yolo" / "checkpoints",
-        Path("/data1/ouyangxinglong/EchoDVT/yolo/runs"),
-    ]
-    for base in search_dirs:
-        if not base.exists():
-            continue
-        for pt_file in base.rglob("best.pt"):
-            # 用相对路径做展示名
-            rel = str(pt_file.relative_to(base.parent))
-            weights[rel] = str(pt_file)
-    # 如果找不到任何权重，提供默认路径
-    if not weights:
-        default = PROJECT_ROOT / "yolo" / "runs" / "detect" / "runs" / "detect" / "dvt_runs" / "aug_step5_speckle_translate_scale" / "weights" / "best.pt"
-        weights["默认 (step5_speckle)"] = str(default)
-    return weights
+FIXED_YOLO_CONFIDENCE = 0.1
 
 
-def _find_prior_stats() -> str:
-    """查找先验统计文件"""
-    candidates = [
-        PROJECT_ROOT / "yolo" / "prior_stats.json",
-        Path("/data1/ouyangxinglong/EchoDVT/yolo/prior_stats.json"),
-    ]
-    for p in candidates:
-        if p.exists():
-            return str(p)
-    return str(candidates[0])
+def _get_fixed_yolo_model_display() -> str:
+    """返回固定最优 YOLO 权重的展示名。"""
+    try:
+        return str(DEFAULT_YOLO_MODEL.relative_to(PROJECT_ROOT))
+    except ValueError:
+        return str(DEFAULT_YOLO_MODEL)
 
 
-def _run_yolo_detection(state: dict, weight_key: str, conf_threshold: float):
+def _run_yolo_detection(state: dict, conf_threshold: float):
     """运行 YOLO 检测"""
     if not state.get("frame_files"):
         return state, None, "⚠️ 请先在「📤 数据输入」Tab 中加载案例"
@@ -67,10 +43,7 @@ def _run_yolo_detection(state: dict, weight_key: str, conf_threshold: float):
 
     h, w = img.shape[:2]
 
-    # 查找权重
-    available_weights = _find_yolo_weights()
-    model_path = available_weights.get(weight_key)
-    if not model_path or not Path(model_path).exists():
+    if not DEFAULT_YOLO_MODEL.exists():
         # 模拟模式：使用 GT mask 提取框（用于 demo）
         return _demo_detection_from_gt(state, img)
 
@@ -103,7 +76,7 @@ def _demo_detection_from_gt(state: dict, img: np.ndarray):
     first_mask_path = masks_dir / "00000.png"
 
     if not first_mask_path.exists():
-        return state, bgr_to_rgb(img), "⚠️ 无 YOLO 权重且无 GT mask，无法进行检测"
+        return state, bgr_to_rgb(img), "⚠️ 固定 YOLO 权重缺失且无 GT mask，无法进行检测"
 
     gt_mask = cv2.imread(str(first_mask_path), cv2.IMREAD_GRAYSCALE)
     h, w = img.shape[:2]
@@ -166,6 +139,7 @@ def _format_detection_report(result: dict, w: int, h: int) -> str:
 
 def build_detection_tab(state: gr.State):
     """构建 YOLO 检测展示 Tab"""
+    fixed_confidence = gr.State(FIXED_YOLO_CONFIDENCE)
 
     with gr.Row(equal_height=False):
         with gr.Column(scale=2):
@@ -181,26 +155,10 @@ def build_detection_tab(state: gr.State):
             </div>
             """)
 
-            available_weights = _find_yolo_weights()
-            weight_choices = list(available_weights.keys())
-
-            yolo_weight = gr.Dropdown(
-                choices=weight_choices,
-                value=weight_choices[0] if weight_choices else None,
-                label="🏋️ YOLO 权重",
-                info="选择不同训练阶段的模型权重",
-            )
-
-            conf_slider = gr.Slider(
-                minimum=0.01, maximum=0.95, value=0.1, step=0.01,
-                label="置信度阈值",
-                info="低阈值可检测更多目标，但可能有误检",
-            )
-
             detect_btn = gr.Button("🎯 运行检测", variant="primary", size="lg")
 
-            detection_report = gr.Markdown("""
-> 💡 **操作指引**: 选择 YOLO 权重和置信度阈值后，点击「运行检测」。
+            detection_report = gr.Markdown(f"""
+> 💡 **操作指引**: 当前 UI 已固定最优 YOLO 检测配置 `{_get_fixed_yolo_model_display()}`，点击「运行检测」即可。
 > 缺失检测框会通过统计先验自动补全。
 """)
 
@@ -213,6 +171,6 @@ def build_detection_tab(state: gr.State):
 
     detect_btn.click(
         fn=_run_yolo_detection,
-        inputs=[state, yolo_weight, conf_slider],
+        inputs=[state, fixed_confidence],
         outputs=[state, detection_image, detection_report],
     )

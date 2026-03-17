@@ -6,4 +6,6 @@ yolo/predictions/
 sam2/predictions/
 *.pt
 __pycache__/
+*.pyc
 checkpoints/
+web/assets/cache/*.json

@@ -102,6 +102,40 @@ body, .dark, .gradio-container {
 }
 
 /* ============================
+   WORKFLOW NAV BAR
+   ============================ */
+.workflow-nav-header {
+    margin: 14px 24px 6px 24px;
+    padding: 10px 14px;
+    background: linear-gradient(135deg, #f8fbff, #f3f8ff);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+}
+.workflow-nav-title {
+    font-size: 14px;
+    font-weight: 800;
+    color: var(--primary);
+    margin-bottom: 2px;
+}
+.workflow-nav-desc {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+.workflow-nav-row {
+    margin: 0 24px 10px 24px !important;
+    gap: 8px !important;
+    flex-wrap: wrap !important;
+}
+.workflow-nav-row button.secondary {
+    padding: 8px 12px !important;
+    font-size: 12px !important;
+    border-radius: 20px !important;
+}
+#workflow-status-card {
+    border-left: 3px solid var(--primary);
+}
+
+/* ============================
    SIDEBAR NAV
    ============================ */
 .sidebar-tabs { border: none !important; background: transparent !important; }

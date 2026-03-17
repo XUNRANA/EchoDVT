@@ -19,6 +19,7 @@ import json
 import argparse
 import numpy as np
 import pandas as pd
+import joblib
 from pathlib import Path
 from collections import defaultdict
 from PIL import Image
@@ -119,10 +120,11 @@ def extract_features(masks):
     features = {}
 
     # ── 1. 静脉压缩比 (Vein Compression Ratio, VCR) ──
-    # = min_area / max_area，越小说明压缩越充分（正常）
+    # = p5/p95，用百分位数避免单帧异常值（0面积帧）导致VCR恒为0
     vein_max = np.max(vein_areas) if np.max(vein_areas) > 0 else 1
-    vein_min = np.min(vein_areas)
-    features["vcr"] = vein_min / vein_max
+    vein_p95 = np.percentile(vein_areas, 95) if vein_max > 0 else 1
+    vein_p5 = np.percentile(vein_areas, 5)
+    features["vcr"] = vein_p5 / vein_p95 if vein_p95 > 0 else 0
 
     # ── 2. 静脉消失率 (Vein Disappearance Rate, VDR) ──
     # 面积 < 阈值的帧占比，越高说明静脉被压扁了（正常）
@@ -136,7 +138,7 @@ def extract_features(masks):
 
     # ── 4. 静脉面积相对范围 (Vein Area Relative Range, VARR) ──
     # = (max - min) / max，越大说明压缩幅度越大（正常）
-    features["varr"] = (vein_max - vein_min) / vein_max if vein_max > 0 else 0
+    features["varr"] = (vein_p95 - vein_p5) / vein_p95 if vein_p95 > 0 else 0
 
     # ── 5. 最小静脉/动脉面积比 (Min Vein-to-Artery Ratio, MVAR) ──
     # 动脉不受压缩影响，用作参考。最小比值越小说明静脉被压得越小（正常）
@@ -145,7 +147,7 @@ def extract_features(masks):
         if a_area > 0:
             va_ratios.append(v_area / a_area)
     if va_ratios:
-        features["mvar"] = np.min(va_ratios)
+        features["mvar"] = np.percentile(va_ratios, 5) if len(va_ratios) >= 5 else np.min(va_ratios)
         features["mean_var"] = np.mean(va_ratios)
     else:
         features["mvar"] = 1.0
@@ -194,6 +196,7 @@ def extract_features(masks):
     # 分割差的 case 静脉检出率低、面积跳变大 → 分类器应倾向判 DVT（安全侧）
     vein_present = vein_areas > 10  # 面积>10像素视为"检测到静脉"
     features["vein_detect_rate"] = np.mean(vein_present)
+    features["vein_zero_rate"] = np.mean(vein_areas == 0)
 
     artery_present = artery_areas > 10
     features["artery_detect_rate"] = np.mean(artery_present)
@@ -476,11 +479,11 @@ def run_ml_classifiers(X, y, feature_names):
     classifiers = {
         "Logistic Regression": LogisticRegression(max_iter=1000, C=1.0),
         "LR (cost-sensitive)": LogisticRegression(
-            max_iter=1000, C=1.0, class_weight={0: 1, 1: 3}),
+            max_iter=1000, C=1.0, class_weight={0: 1, 1: 2}),
         "Random Forest": RandomForestClassifier(n_estimators=100, max_depth=3, random_state=42),
         "RF (cost-sensitive)": RandomForestClassifier(
             n_estimators=100, max_depth=3, random_state=42,
-            class_weight={0: 1, 1: 3}),
+            class_weight={0: 1, 1: 2}),
         "Gradient Boosting": GradientBoostingClassifier(n_estimators=50, max_depth=2, random_state=42),
     }
 
@@ -522,6 +525,230 @@ def run_ml_classifiers(X, y, feature_names):
             )
 
     return results
+
+
+# ─────────────────────── 统一模型 ───────────────────────
+
+UNIFIED_MODEL_DIR = _REPO_ROOT / "results" / "unified_model"
+UNIFIED_MODEL_PATH = UNIFIED_MODEL_DIR / "rf_unified.pkl"
+
+# 统一模型参数（经过 val+train 联合调参确定）
+UNIFIED_RF_PARAMS = dict(
+    n_estimators=100,
+    max_depth=None,
+    class_weight={0: 1, 1: 15},
+    random_state=42,
+)
+UNIFIED_THRESHOLD = 0.05  # 概率阈值（低阈值 = 高召回率）
+
+# 用于模型输入的特征列（与训练时顺序一致）
+FEATURE_COLS = [
+    "vcr", "vdr", "vein_cv", "varr", "mvar", "mean_var",
+    "vein_slope", "vein_min_position", "artery_stability", "max_drop_ratio",
+    "vein_p10", "vein_p25", "vein_p50",
+    "vein_detect_rate", "vein_zero_rate", "artery_detect_rate",
+    "vein_jitter", "vein_autocorr",
+    "circ_cv", "circ_min", "circ_range",
+]
+
+
+def train_unified_model(
+    val_features_csv: str,
+    train_features_csv: str,
+    val_labels: dict,
+    train_labels: dict,
+    output_path: str = None,
+    rf_params: dict = None,
+    threshold: float = None,
+) -> dict:
+    """
+    在 val+train 联合数据上训练统一 RF 模型并保存。
+
+    Args:
+        val_features_csv: val 特征 CSV 路径
+        train_features_csv: train 特征 CSV 路径
+        val_labels: {case_id: 0/1} val 标签
+        train_labels: {case_id: 0/1} train 标签
+        output_path: 模型输出路径（默认 UNIFIED_MODEL_PATH）
+        rf_params: RF 超参（默认 UNIFIED_RF_PARAMS）
+        threshold: 概率阈值（默认 UNIFIED_THRESHOLD）
+
+    Returns:
+        评估结果 dict
+    """
+    rf_params = rf_params or UNIFIED_RF_PARAMS
+    threshold = threshold if threshold is not None else UNIFIED_THRESHOLD
+    output_path = Path(output_path or UNIFIED_MODEL_PATH)
+
+    # 加载特征
+    val_df = pd.read_csv(val_features_csv, index_col=0)
+    train_df = pd.read_csv(train_features_csv, index_col=0)
+
+    # 匹配标签
+    val_y = pd.Series({c: val_labels[c] for c in val_df.index if c in val_labels})
+    train_y = pd.Series({c: train_labels[c] for c in train_df.index if c in train_labels})
+
+    val_df = val_df.loc[val_y.index]
+    train_df = train_df.loc[train_y.index]
+
+    feature_cols = [c for c in FEATURE_COLS if c in val_df.columns]
+
+    # 合并
+    combined_X = pd.concat([val_df[feature_cols], train_df[feature_cols]])
+    combined_y = pd.concat([val_y, train_y])
+
+    print(f"[Unified] Combined: {len(combined_X)} cases "
+          f"({(combined_y == 0).sum()} normal, {(combined_y == 1).sum()} DVT)")
+
+    # 标准化
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(combined_X.values)
+
+    # --- LOO-CV 仅在 val 部分评估 ---
+    n_val = len(val_df)
+    val_indices = list(range(n_val))
+
+    loo = LeaveOneOut()
+    val_X_scaled = X_scaled[:n_val]
+    val_y_arr = combined_y.values[:n_val]
+
+    val_probs_loo = np.zeros(n_val)
+    for train_idx, test_idx in loo.split(val_X_scaled):
+        # LOO: 去掉 val 中的一个样本，用剩余 val + 全部 train 训练
+        loo_train_X = np.concatenate([
+            X_scaled[train_idx],  # val 中除了当前样本
+            X_scaled[n_val:],     # 全部 train
+        ])
+        loo_train_y = np.concatenate([
+            combined_y.values[train_idx],
+            combined_y.values[n_val:],
+        ])
+        clf = RandomForestClassifier(**rf_params)
+        clf.fit(loo_train_X, loo_train_y)
+        val_probs_loo[test_idx] = clf.predict_proba(val_X_scaled[test_idx])[:, 1]
+
+    val_preds_loo = (val_probs_loo >= threshold).astype(int)
+    val_acc = accuracy_score(val_y_arr, val_preds_loo)
+    val_recall = recall_score(val_y_arr, val_preds_loo, zero_division=0)
+    val_precision = precision_score(val_y_arr, val_preds_loo, zero_division=0)
+    val_cm = confusion_matrix(val_y_arr, val_preds_loo)
+
+    print(f"[Unified] Val LOO-CV: Acc={val_acc:.3f} Recall={val_recall:.3f} "
+          f"Precision={val_precision:.3f}")
+    print(f"  TN={val_cm[0,0]} FP={val_cm[0,1]} FN={val_cm[1,0]} TP={val_cm[1,1]}")
+
+    # --- 在全部数据上训练最终模型 ---
+    final_clf = RandomForestClassifier(**rf_params)
+    final_clf.fit(X_scaled, combined_y.values)
+
+    # 在 train 部分评估（非 LOO，用最终模型）
+    train_X_scaled = X_scaled[n_val:]
+    train_y_arr = combined_y.values[n_val:]
+    train_probs = final_clf.predict_proba(train_X_scaled)[:, 1]
+    train_preds = (train_probs >= threshold).astype(int)
+    train_acc = accuracy_score(train_y_arr, train_preds)
+    train_fp = int((train_preds == 1).sum() - ((train_preds == 1) & (train_y_arr == 1)).sum())
+
+    print(f"[Unified] Train: Acc={train_acc:.3f} FP={train_fp}/{len(train_y_arr)}")
+
+    # 保存模型
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    model_bundle = {
+        "scaler": scaler,
+        "classifier": final_clf,
+        "threshold": threshold,
+        "feature_cols": feature_cols,
+        "rf_params": rf_params,
+        "val_acc": val_acc,
+        "val_recall": val_recall,
+        "train_acc": train_acc,
+    }
+    joblib.dump(model_bundle, output_path)
+    print(f"[Unified] Model saved to {output_path}")
+
+    # 同时保存 JSON 元信息（供 web dashboard 读取）
+    meta = {
+        "model": "RandomForest",
+        "rf_params": {k: v for k, v in rf_params.items() if k != "random_state"},
+        "threshold": threshold,
+        "feature_cols": feature_cols,
+        "n_train_cases": len(combined_X),
+        "n_normal": int((combined_y == 0).sum()),
+        "n_dvt": int((combined_y == 1).sum()),
+        "val_accuracy": val_acc,
+        "val_recall": val_recall,
+        "val_precision": val_precision,
+        "val_fp": int(val_cm[0, 1]),
+        "val_fn": int(val_cm[1, 0]),
+        "train_accuracy": train_acc,
+        "train_fp": train_fp,
+    }
+    meta_path = output_path.with_suffix(".json")
+    with open(meta_path, "w") as f:
+        json.dump(meta, f, indent=2, ensure_ascii=False)
+    print(f"[Unified] Meta saved to {meta_path}")
+
+    return meta
+
+
+def predict_dvt(features_dict: dict, model_path: str = None) -> dict:
+    """
+    使用统一模型对单个 case 进行 DVT 预测。
+
+    Args:
+        features_dict: extract_features() 返回的特征字典
+        model_path: 模型路径（默认 UNIFIED_MODEL_PATH）
+
+    Returns:
+        {"is_dvt": bool, "probability": float, "confidence": float,
+         "diagnosis": str, "threshold": float, "features": dict}
+    """
+    model_path = Path(model_path or UNIFIED_MODEL_PATH)
+
+    if not model_path.exists():
+        # 回退到与统一模型对齐的简单 VCR 阈值
+        vcr = features_dict.get("vcr", 0)
+        is_dvt = vcr > UNIFIED_THRESHOLD
+        return {
+            "is_dvt": is_dvt,
+            "probability": vcr,
+            "confidence": min(1.0, abs(vcr - UNIFIED_THRESHOLD) / 0.3),
+            "diagnosis": "DVT 疑似（静脉拒绝塌陷）" if is_dvt else "正常（静脉正常塌陷）",
+            "threshold": UNIFIED_THRESHOLD,
+            "features": features_dict,
+            "model": "VCR fallback",
+        }
+
+    bundle = joblib.load(model_path)
+    scaler = bundle["scaler"]
+    clf = bundle["classifier"]
+    threshold = bundle["threshold"]
+    feature_cols = bundle["feature_cols"]
+
+    # 按训练时的特征顺序构建输入
+    x = np.array([[features_dict.get(c, 0) for c in feature_cols]])
+    x_scaled = scaler.transform(x)
+    prob = clf.predict_proba(x_scaled)[0, 1]
+    is_dvt = prob >= threshold
+
+    distance = abs(prob - threshold)
+    confidence = min(1.0, distance / 0.3)
+
+    if is_dvt:
+        diagnosis = "DVT 疑似（静脉拒绝塌陷）"
+    else:
+        diagnosis = "正常（静脉正常塌陷）"
+
+    return {
+        "is_dvt": is_dvt,
+        "probability": float(prob),
+        "confidence": float(confidence),
+        "diagnosis": diagnosis,
+        "threshold": threshold,
+        "features": features_dict,
+        "vcr": features_dict.get("vcr", 0),
+        "model": "RF unified",
+    }
 
 
 # ─────────────────────── 可视化 ───────────────────────

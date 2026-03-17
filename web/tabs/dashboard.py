@@ -1,11 +1,9 @@
 """
 Dashboard 首页模块
 - 系统状态卡片（GPU / 内存 / 模型状态）
-- 数据集统计卡片（使用标签文件统计）
-- 验证集 DVT 诊断准确率（基于 GT mask）
-- 测试集批量测试（需模型推理）
+- 数据集统计卡片（train / val）
+- train / val 统一模型指标概览
 - 当前流程进度状态（已加载/检测/分割/诊断/评估）
-- 最近分析记录
 - 数据集分布图表
 """
 
@@ -24,7 +22,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from web.utils.chart_style import setup_matplotlib, style_axis
-from web.utils.metrics import compute_mask_area, compute_dvt_diagnosis
+from web.utils.metrics import compute_mask_area, get_unified_threshold
+from web.services.inference import DEFAULT_SAM2_VARIANT
 
 import matplotlib
 matplotlib.use("Agg")
@@ -36,6 +35,150 @@ import matplotlib.pyplot as plt
 _CACHE_DIR = Path(__file__).parent.parent / "assets" / "cache"
 _VAL_ACC_CACHE = _CACHE_DIR / "val_accuracy.json"
 _TEST_ACC_CACHE = _CACHE_DIR / "test_accuracy.json"
+_VAL_HPARAM_REPORT = PROJECT_ROOT / "results" / "e2e_classify_v3" / "classification_report.json"
+_UNIFIED_MODEL_META = PROJECT_ROOT / "results" / "unified_model" / "rf_unified.json"
+_COMPREHENSIVE_VERSION = 3
+_DEFAULT_TEST_NORMAL_SAMPLE = 500
+_DEFAULT_TEST_PATIENT_SAMPLE = 50
+
+
+def _get_unified_model_meta() -> Dict:
+    """读取统一模型元信息"""
+    if _UNIFIED_MODEL_META.exists():
+        return json.loads(_UNIFIED_MODEL_META.read_text("utf-8"))
+    return {}
+
+
+def _get_model_meta_signature() -> Optional[str]:
+    """返回统一模型元信息文件签名，用于判定缓存是否过期。"""
+    if not _UNIFIED_MODEL_META.exists():
+        return None
+    stat = _UNIFIED_MODEL_META.stat()
+    return f"{stat.st_mtime_ns}:{stat.st_size}"
+
+
+def _get_model_meta_timestamp() -> str:
+    """返回统一模型元信息更新时间。"""
+    if not _UNIFIED_MODEL_META.exists():
+        return "—"
+    return datetime.fromtimestamp(_UNIFIED_MODEL_META.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _get_val_fixed_threshold() -> float:
+    """返回 RF 概率阈值（统一模型）。"""
+    meta = _get_unified_model_meta()
+    return float(meta.get("threshold", get_unified_threshold()))
+
+
+def _get_train_case_count() -> int:
+    train_normal_file = PROJECT_ROOT / "sam2" / "dataset" / "train_normal.txt"
+    if train_normal_file.exists():
+        return len(_read_label_file(train_normal_file))
+    train_root = PROJECT_ROOT / "sam2" / "dataset" / "train"
+    if train_root.exists():
+        return len([d for d in train_root.iterdir() if d.is_dir()])
+    return 0
+
+
+def _get_meta_train_val_metrics() -> Optional[Dict]:
+    """根据最新统一模型元信息构造 train/val 汇总指标。"""
+    meta = _get_unified_model_meta()
+    if not meta:
+        return None
+
+    try:
+        train_total = _get_train_case_count()
+        val_normal_set, val_abnormal_set = _get_val_labels()
+        val_normal_total = len(val_normal_set)
+        val_dvt_total = len(val_abnormal_set)
+        val_total = val_normal_total + val_dvt_total
+
+        threshold = float(meta.get("threshold", get_unified_threshold()))
+        timestamp = _get_model_meta_timestamp()
+        signature = _get_model_meta_signature()
+
+        train_fp = max(0, min(train_total, int(meta.get("train_fp", 0))))
+        train_tn = max(0, train_total - train_fp)
+        train_metrics = _build_binary_metrics(
+            tp=0,
+            fp=train_fp,
+            tn=train_tn,
+            fn=0,
+            correct=train_tn,
+            total=train_total,
+        )
+        if train_total > 0 and "train_accuracy" in meta:
+            train_metrics["accuracy"] = round(float(meta["train_accuracy"]), 4)
+            train_metrics["correct"] = int(round(train_metrics["accuracy"] * train_total))
+            train_metrics["tn"] = train_metrics["correct"]
+            train_metrics["fp"] = max(0, train_total - train_metrics["correct"])
+        train_metrics.update({
+            "details": [],
+            "available": train_total > 0,
+            "timestamp": timestamp,
+            "threshold": threshold,
+            "classifier": "RF unified",
+            "source": "model_meta",
+            "model_meta_signature": signature,
+            "version": 4,
+        })
+
+        val_fp = max(0, min(val_normal_total, int(meta.get("val_fp", 0))))
+        val_fn = max(0, min(val_dvt_total, int(meta.get("val_fn", 0))))
+        val_tp = max(0, val_dvt_total - val_fn)
+        val_tn = max(0, val_normal_total - val_fp)
+        val_correct = val_tp + val_tn
+        val_metrics = _build_binary_metrics(
+            tp=val_tp,
+            fp=val_fp,
+            tn=val_tn,
+            fn=val_fn,
+            correct=val_correct,
+            total=val_total,
+        )
+        if "val_accuracy" in meta:
+            val_metrics["accuracy"] = round(float(meta["val_accuracy"]), 4)
+        if "val_precision" in meta:
+            val_metrics["precision"] = round(float(meta["val_precision"]), 4)
+        if "val_recall" in meta:
+            val_metrics["recall"] = round(float(meta["val_recall"]), 4)
+        precision = float(val_metrics.get("precision", 0))
+        recall = float(val_metrics.get("recall", 0))
+        val_metrics["f1"] = (
+            round(2 * precision * recall / (precision + recall), 4)
+            if (precision + recall) > 0
+            else 0.0
+        )
+        val_metrics.update({
+            "details": [],
+            "available": val_total > 0,
+            "timestamp": timestamp,
+            "threshold": threshold,
+            "classifier": "RF unified",
+            "source": "model_meta",
+            "model_meta_signature": signature,
+            "version": 4,
+        })
+
+        return {
+            "train": train_metrics,
+            "val": val_metrics,
+            "threshold": threshold,
+            "timestamp": timestamp,
+            "model_meta_signature": signature,
+        }
+    except Exception:
+        return None
+
+
+def _is_cache_current_for_model(cache_data: Dict | None) -> bool:
+    """检查缓存是否对应当前统一模型。"""
+    if not cache_data:
+        return False
+    current_signature = _get_model_meta_signature()
+    if current_signature is None:
+        return True
+    return cache_data.get("model_meta_signature") == current_signature
 
 
 # ─── 标签文件读取 ───
@@ -135,14 +278,10 @@ def _get_dataset_stats() -> Dict:
     val_cases = _list_cases("val")
     train_cases = _list_cases("train")
 
-    # 使用标签文件统计正常/患者数量
     val_normal_set, val_abnormal_set = _get_val_labels()
-    test_normal_set, test_patient_set = _get_test_labels()
 
     val_normal = len(val_normal_set)
     val_patient = len(val_abnormal_set)
-    test_normal = len(test_normal_set)
-    test_patient = len(test_patient_set)
 
     # 估算总帧数
     root = _get_dataset_root()
@@ -164,10 +303,7 @@ def _get_dataset_stats() -> Dict:
         "train_count": len(train_cases),
         "val_normal": val_normal,
         "val_patient": val_patient,
-        "test_normal": test_normal,
-        "test_patient": test_patient,
-        "test_total": test_normal + test_patient,
-        "total_cases": len(val_cases) + len(train_cases) + test_normal + test_patient,
+        "total_cases": len(val_cases) + len(train_cases),
         "total_frames_est": total_frames_est,
         "avg_frames": int(avg_frames),
     }
@@ -179,20 +315,45 @@ def _compute_val_accuracy(force_recompute: bool = False) -> Dict:
     """计算验证集 DVT 诊断准确率（基于 GT mask，无需模型推理）"""
     _CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-    # 检查缓存
+    if not force_recompute:
+        meta_metrics = _get_meta_train_val_metrics()
+        if meta_metrics is not None:
+            return meta_metrics["val"]
+
+    # 检查缓存 — version=3 表示使用统一 RF 分类器
     if not force_recompute and _VAL_ACC_CACHE.exists():
         try:
             cached = json.loads(_VAL_ACC_CACHE.read_text("utf-8"))
-            if cached.get("version") == 1:
+            if cached.get("version") == 3:
                 return cached
         except Exception:
             pass
 
     val_dir = PROJECT_ROOT / "sam2" / "dataset" / "val"
     if not val_dir.exists():
-        return {"correct": 0, "total": 0, "accuracy": 0, "details": [], "version": 1}
+        return {"correct": 0, "total": 0, "accuracy": 0, "details": [], "version": 3}
+
+    try:
+        from classify_dvt import extract_features, predict_dvt
+    except Exception as e:
+        return {
+            "correct": 0,
+            "total": 0,
+            "accuracy": 0,
+            "precision": 0,
+            "recall": 0,
+            "f1": 0,
+            "tp": 0, "fp": 0, "tn": 0, "fn": 0,
+            "threshold": _get_val_fixed_threshold(),
+            "classifier": "RF unified",
+            "details": [],
+            "version": 3,
+            "error": f"统一分类器加载失败: {e}",
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
 
     val_normal_set, val_abnormal_set = _get_val_labels()
+    val_threshold = _get_val_fixed_threshold()
 
     correct = 0
     total = 0
@@ -221,19 +382,23 @@ def _compute_val_accuracy(force_recompute: bool = False) -> Dict:
         if len(mask_files) < 2:
             continue
 
-        # 从 GT mask 计算静脉面积
-        vein_areas = []
+        masks = []
         for mf in mask_files:
             mask = cv2.imread(str(mf), cv2.IMREAD_GRAYSCALE)
             if mask is not None:
-                vein_area = compute_mask_area(mask, 2)
-                vein_areas.append(vein_area)
+                masks.append(mask)
 
-        if len(vein_areas) < 2:
+        if len(masks) < 2:
             continue
 
-        result = compute_dvt_diagnosis(vein_areas)
-        predicted_dvt = result["is_dvt"]
+        try:
+            features = extract_features(masks)
+            result = predict_dvt(features)
+        except Exception:
+            continue
+        predicted_dvt = result.get("is_dvt")
+        if predicted_dvt is None:
+            continue
 
         total += 1
         is_correct = (predicted_dvt == actual_dvt)
@@ -255,7 +420,9 @@ def _compute_val_accuracy(force_recompute: bool = False) -> Dict:
             "actual": "DVT" if actual_dvt else "正常",
             "predicted": "DVT" if predicted_dvt else "正常",
             "correct": is_correct,
-            "vcr": round(result.get("area_ratio", 0), 4),
+            "vcr": round(float(features.get("vcr", 0.0)), 4),
+            "probability": round(float(result.get("probability", 0.0)), 4),
+            "model": result.get("model", "RF unified"),
         })
 
     accuracy = round(correct / total, 4) if total > 0 else 0
@@ -264,7 +431,7 @@ def _compute_val_accuracy(force_recompute: bool = False) -> Dict:
     f1 = round(2 * precision * recall / (precision + recall), 4) if (precision + recall) > 0 else 0
 
     result = {
-        "version": 1,
+        "version": 3,
         "correct": correct,
         "total": total,
         "accuracy": accuracy,
@@ -272,6 +439,8 @@ def _compute_val_accuracy(force_recompute: bool = False) -> Dict:
         "recall": recall,
         "f1": f1,
         "tp": tp, "fp": fp, "tn": tn, "fn": fn,
+        "threshold": val_threshold,
+        "classifier": "RF unified",
         "details": details,
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
@@ -284,10 +453,371 @@ def _compute_val_accuracy(force_recompute: bool = False) -> Dict:
     return result
 
 
-def _run_test_batch(state: dict, sample_size: int = 0, progress=gr.Progress(track_tqdm=True)):
-    """运行测试集批量 DVT 诊断并返回 (dataset_html, status_message)"""
+def _safe_ratio(numerator: int, denominator: int) -> float:
+    return round(numerator / denominator, 4) if denominator > 0 else 0.0
+
+
+def _build_binary_metrics(tp: int, fp: int, tn: int, fn: int, correct: int, total: int) -> Dict:
+    precision = _safe_ratio(tp, tp + fp)
+    recall = _safe_ratio(tp, tp + fn)
+    f1 = round(2 * precision * recall / (precision + recall), 4) if (precision + recall) > 0 else 0.0
+    return {
+        "correct": int(correct),
+        "total": int(total),
+        "accuracy": _safe_ratio(correct, total),
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "tp": int(tp),
+        "fp": int(fp),
+        "tn": int(tn),
+        "fn": int(fn),
+    }
+
+
+def _is_expected_test_profile(test_acc: Optional[Dict]) -> bool:
+    if not test_acc:
+        return False
+    if int(test_acc.get("total", 0)) <= 0:
+        return False
+    return (
+        int(test_acc.get("normal_sample_size", -1)) == _DEFAULT_TEST_NORMAL_SAMPLE
+        and int(test_acc.get("patient_sample_size", -1)) == _DEFAULT_TEST_PATIENT_SAMPLE
+    )
+
+
+def _build_misclassified_reason(
+    actual_dvt: bool,
+    predicted_dvt: bool,
+    area_ratio: Optional[float],
+    threshold: float,
+) -> str:
+    if actual_dvt == predicted_dvt:
+        return "判定正确"
+    if area_ratio is None:
+        return "静脉面积序列不足，无法稳定估计 VCR。"
+    collapse_ratio = (1.0 - area_ratio) * 100.0
+    if actual_dvt and not predicted_dvt:
+        return (
+            f"漏诊(FN)：VCR={area_ratio:.3f} ≤ 阈值 {threshold:.3f}。"
+            f"静脉压缩幅度约 {collapse_ratio:.1f}% ，系统认为可压缩。"
+        )
+    return (
+        f"误报(FP)：VCR={area_ratio:.3f} > 阈值 {threshold:.3f}。"
+        f"静脉压缩幅度约 {collapse_ratio:.1f}% ，系统认为不易压缩。"
+    )
+
+
+def _build_prob_reason(
+    actual_dvt: bool,
+    predicted_dvt: bool,
+    probability: Optional[float],
+    threshold: float,
+) -> str:
+    if actual_dvt == predicted_dvt:
+        return "判定正确"
+    if probability is None:
+        return "模型概率缺失，无法生成概率解释。"
+    if actual_dvt and not predicted_dvt:
+        return f"漏诊(FN)：RF 概率={probability:.3f} < 阈值 {threshold:.3f}。"
+    return f"误报(FP)：RF 概率={probability:.3f} ≥ 阈值 {threshold:.3f}。"
+
+
+def _evaluate_case_from_gt_masks(
+    case_name: str,
+    masks_dir: Path,
+    actual_dvt: bool,
+    split: str,
+    threshold: float,
+) -> Optional[Dict]:
+    if not masks_dir.exists():
+        return None
+    mask_files = sorted(masks_dir.glob("*.png"), key=lambda p: int(p.stem))
+    if len(mask_files) < 2:
+        return None
+
+    from classify_dvt import extract_features, predict_dvt
+
+    masks = []
+    for mf in mask_files:
+        mask = cv2.imread(str(mf), cv2.IMREAD_GRAYSCALE)
+        if mask is not None:
+            masks.append(mask)
+
+    if len(masks) < 2:
+        return None
+
+    features = extract_features(masks)
+    result = predict_dvt(features)
+    predicted_dvt = result.get("is_dvt")
+    if predicted_dvt is None:
+        return None
+
+    vcr = features.get("vcr")
+    prob = result.get("probability")
+    is_correct = bool(predicted_dvt == actual_dvt)
+    reason = _build_prob_reason(actual_dvt, predicted_dvt, prob, threshold)
+    return {
+        "split": split,
+        "case": case_name,
+        "actual": "DVT" if actual_dvt else "正常",
+        "predicted": "DVT" if predicted_dvt else "正常",
+        "correct": is_correct,
+        "vcr": round(vcr, 4) if vcr is not None else None,
+        "probability": round(prob, 4) if prob is not None else None,
+        "reason": reason,
+    }
+
+
+def _summarize_details(details: List[Dict]) -> Dict:
+    tp = fp = tn = fn = 0
+    for item in details:
+        actual_dvt = item.get("actual") == "DVT"
+        predicted_dvt = item.get("predicted") == "DVT"
+        if actual_dvt and predicted_dvt:
+            tp += 1
+        elif actual_dvt and not predicted_dvt:
+            fn += 1
+        elif not actual_dvt and predicted_dvt:
+            fp += 1
+        else:
+            tn += 1
+    total = len(details)
+    correct = sum(1 for item in details if item.get("correct"))
+    metrics = _build_binary_metrics(tp, fp, tn, fn, correct, total)
+    metrics["details"] = details
+    return metrics
+
+
+def _collect_train_mask_cases():
+    train_root = PROJECT_ROOT / "sam2" / "dataset" / "train"
+    if not train_root.exists():
+        return []
+    return [
+        (case_dir.name, case_dir / "masks", False)
+        for case_dir in sorted(train_root.iterdir())
+        if case_dir.is_dir()
+    ]
+
+
+def _collect_val_mask_cases():
+    val_root = PROJECT_ROOT / "sam2" / "dataset" / "val"
+    if not val_root.exists():
+        return []
+    val_normal_set, val_abnormal_set = _get_val_labels()
+    cases = []
+    for case_dir in sorted(val_root.iterdir()):
+        if not case_dir.is_dir():
+            continue
+        case_name = case_dir.name
+        if case_name in val_normal_set:
+            actual_dvt = False
+        elif case_name in val_abnormal_set:
+            actual_dvt = True
+        else:
+            continue
+        cases.append((case_name, case_dir / "masks", actual_dvt))
+    return cases
+
+
+def _normalize_test_detail_item(item: Dict, threshold: float) -> Optional[Dict]:
+    case_name = item.get("case")
+    actual = item.get("actual")
+    predicted = item.get("predicted")
+    if not case_name or actual not in ("正常", "DVT") or predicted not in ("正常", "DVT"):
+        return None
+    actual_dvt = actual == "DVT"
+    predicted_dvt = predicted == "DVT"
+    try:
+        area_ratio = float(item.get("vcr"))
+    except Exception:
+        area_ratio = None
+    try:
+        probability = float(item.get("probability"))
+    except Exception:
+        probability = None
+    reason = (
+        _build_prob_reason(actual_dvt, predicted_dvt, probability, threshold)
+        if probability is not None
+        else _build_misclassified_reason(actual_dvt, predicted_dvt, area_ratio, threshold)
+    )
+    return {
+        "split": "test",
+        "case": case_name,
+        "actual": actual,
+        "predicted": predicted,
+        "correct": bool(actual_dvt == predicted_dvt),
+        "vcr": round(area_ratio, 4) if area_ratio is not None else None,
+        "probability": round(probability, 4) if probability is not None else None,
+        "reason": reason,
+    }
+
+
+def _compute_comprehensive_accuracy(
+    state: Optional[dict] = None,
+    force_recompute: bool = False,
+    run_test_if_needed: bool = False,
+) -> Dict:
+    meta_metrics = _get_meta_train_val_metrics()
+    if meta_metrics is None:
+        return {
+            "version": _COMPREHENSIVE_VERSION,
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "threshold": _get_val_fixed_threshold(),
+            "config": {
+                "test_normal_sample": _DEFAULT_TEST_NORMAL_SAMPLE,
+                "test_patient_sample": _DEFAULT_TEST_PATIENT_SAMPLE,
+            },
+            "ready": False,
+            "notes": "未找到统一模型元信息，无法构建最新综合指标。",
+            "overall": _build_binary_metrics(0, 0, 0, 0, 0, 0),
+            "splits": {
+                "train": _build_binary_metrics(0, 0, 0, 0, 0, 0),
+                "val": _build_binary_metrics(0, 0, 0, 0, 0, 0),
+                "test": _build_binary_metrics(0, 0, 0, 0, 0, 0),
+            },
+            "misclassified": [],
+            "details_available": False,
+            "details_scope": None,
+            "source": "unavailable",
+        }
+
+    threshold = float(meta_metrics["threshold"])
+    train_metrics = dict(meta_metrics["train"])
+    val_metrics = dict(meta_metrics["val"])
+
+    overall = _build_binary_metrics(
+        train_metrics["tp"] + val_metrics["tp"],
+        train_metrics["fp"] + val_metrics["fp"],
+        train_metrics["tn"] + val_metrics["tn"],
+        train_metrics["fn"] + val_metrics["fn"],
+        train_metrics["correct"] + val_metrics["correct"],
+        train_metrics["total"] + val_metrics["total"],
+    )
+
+    return {
+        "version": _COMPREHENSIVE_VERSION,
+        "timestamp": meta_metrics["timestamp"],
+        "threshold": threshold,
+        "config": {},
+        "ready": True,
+        "notes": "train / val 指标直接读取最新统一模型元信息。",
+        "overall": overall,
+        "splits": {
+            "train": train_metrics,
+            "val": val_metrics,
+        },
+        "misclassified": [],
+        "details_available": False,
+        "details_scope": None,
+        "source": "model_meta",
+        "model_meta_signature": meta_metrics.get("model_meta_signature"),
+    }
+
+
+def _build_comprehensive_summary_html(comp_acc: Dict | None) -> str:
+    if not comp_acc:
+        return """
+        <div class="dashboard-section" style="margin-top: 12px;">
+            <h3 class="section-title">🧮 统一模型概览（train + val）</h3>
+            <div style="font-size:12px; color:var(--text-secondary);">
+                尚未读取到统一模型元信息。
+            </div>
+        </div>
+        """
+
+    splits = comp_acc.get("splits", {})
+
+    def _row(split_key: str, title: str) -> str:
+        data = splits.get(split_key, {})
+        return (
+            f"<tr>"
+            f"<td><strong>{title}</strong></td>"
+            f"<td>{int(data.get('correct', 0))}/{int(data.get('total', 0))}</td>"
+            f"<td>{data.get('accuracy', 0):.1%}</td>"
+            f"<td>{data.get('precision', 0):.1%}</td>"
+            f"<td>{data.get('recall', 0):.1%}</td>"
+            f"<td>{data.get('f1', 0):.3f}</td>"
+            f"</tr>"
+        )
+
+    return f"""
+    <div class="dashboard-section" style="margin-top: 12px;">
+        <h3 class="section-title">🧮 统一模型概览（train + val）</h3>
+        <div style="font-size:12px; color:var(--text-secondary); line-height:1.7; margin-bottom:10px;">
+            分类模型：RF unified (prob &ge; {float(comp_acc.get('threshold', 0)):.2f})<br>
+            说明：train / val 指标直接读取最新统一模型元信息<br>
+            更新时间：{comp_acc.get('timestamp', '—')}
+        </div>
+        <table class="recent-table">
+            <thead>
+                <tr>
+                    <th>数据集</th>
+                    <th>正确/总数</th>
+                    <th>准确率</th>
+                    <th>精确率</th>
+                    <th>召回率</th>
+                    <th>F1</th>
+                </tr>
+            </thead>
+            <tbody>
+                {_row('train', 'train')}
+                {_row('val', 'val')}
+                <tr>
+                    <td><strong>train + val</strong></td>
+                    <td>{int(comp_acc.get('overall', {}).get('correct', 0))}/{int(comp_acc.get('overall', {}).get('total', 0))}</td>
+                    <td>{comp_acc.get('overall', {}).get('accuracy', 0):.1%}</td>
+                    <td>{comp_acc.get('overall', {}).get('precision', 0):.1%}</td>
+                    <td>{comp_acc.get('overall', {}).get('recall', 0):.1%}</td>
+                    <td>{comp_acc.get('overall', {}).get('f1', 0):.3f}</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    """
+
+
+def _build_misclassified_html(comp_acc: Dict | None) -> str:
+    return f"""
+    <div class="dashboard-section" style="border-left: 3px solid var(--primary);">
+        <h3 class="section-title" style="color: var(--primary) !important;">📌 首页说明</h3>
+        <div style="font-size:12px; color:var(--text-secondary); line-height:1.8;">
+            仪表盘当前仅展示 train / val 数据概览与最新统一模型指标。<br>
+            如需开始单案例分析，请前往「📤 数据输入」选择数据来源与案例。
+        </div>
+    </div>
+    """
+
+
+def _run_comprehensive_benchmark(state: dict):
+    comp = _compute_comprehensive_accuracy(
+        state=state,
+        force_recompute=True,
+        run_test_if_needed=True,
+    )
+    status_html, dataset_html, error_html, chart, workflow_html = _refresh_dashboard(state)
+    overall = comp.get("overall", {})
+    if comp.get("ready") and int(overall.get("total", 0)) > 0:
+        status = (
+            "✅ 综合评估完成："
+            f"准确率 {overall.get('accuracy', 0):.1%} "
+            f"（{int(overall.get('correct', 0))}/{int(overall.get('total', 0))}）"
+        )
+    else:
+        status = "⚠️ 综合评估已刷新，但当前未读取到有效的统一模型指标。"
+    return status_html, dataset_html, error_html, chart, workflow_html, status
+
+
+def _run_test_batch_with_limits(
+    state: dict,
+    normal_sample_size: int = 0,
+    patient_sample_size: int = 0,
+    progress=gr.Progress(track_tqdm=True),
+):
+    """运行测试集批量 DVT 诊断（normal/patient 可分别设置取样数）"""
     _CACHE_DIR.mkdir(parents=True, exist_ok=True)
     val_acc = _compute_val_accuracy()
+    val_fixed_threshold = _get_val_fixed_threshold()
 
     test_base = PROJECT_ROOT / "test"
     normal_dir = test_base / "normal"
@@ -298,15 +828,18 @@ def _run_test_batch(state: dict, sample_size: int = 0, progress=gr.Progress(trac
     normal_dirs = sorted(d for d in normal_dir.iterdir() if d.is_dir()) if normal_dir.exists() else []
     patient_dirs = sorted(d for d in patient_dir.iterdir() if d.is_dir()) if patient_dir.exists() else []
 
-    if sample_size > 0:
-        normal_dirs = normal_dirs[:sample_size]
-        patient_dirs = patient_dirs[:sample_size]
+    if normal_sample_size > 0:
+        normal_dirs = normal_dirs[:normal_sample_size]
+    if patient_sample_size > 0:
+        patient_dirs = patient_dirs[:patient_sample_size]
 
     for d in normal_dirs:
         test_list.append((d, False))
     for d in patient_dirs:
         test_list.append((d, True))
 
+    normal_target = len(normal_dirs)
+    patient_target = len(patient_dirs)
     if not test_list:
         return _build_accuracy_html(val_acc, _get_cached_test_accuracy()), "⚠️ 未找到测试数据目录，无法执行批量测试。"
 
@@ -329,10 +862,50 @@ def _run_test_batch(state: dict, sample_size: int = 0, progress=gr.Progress(trac
             "recall": 0,
             "f1": 0,
             "tp": 0, "fp": 0, "tn": 0, "fn": 0,
-            "sample_size": sample_size,
+            "sample_size": normal_sample_size if normal_sample_size == patient_sample_size else None,
+            "normal_sample_size": normal_sample_size,
+            "patient_sample_size": patient_sample_size,
+            "normal_total": 0,
+            "patient_total": 0,
+            "normal_specificity": 0,
+            "patient_recall": 0,
+            "patient_miss_rate": 0,
+            "threshold": val_fixed_threshold,
+            "classifier": "RF unified",
             "details": [],
             "error": inference_error or "InferenceService 不可用",
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "model_meta_signature": _get_model_meta_signature(),
+        }
+        _TEST_ACC_CACHE.write_text(json.dumps(cache_data, ensure_ascii=False, indent=2), "utf-8")
+        return _build_accuracy_html(val_acc, cache_data), f"⚠️ {cache_data['error']}"
+
+    try:
+        from classify_dvt import extract_features, predict_dvt
+    except Exception as e:
+        cache_data = {
+            "version": 1,
+            "correct": 0,
+            "total": 0,
+            "accuracy": 0,
+            "precision": 0,
+            "recall": 0,
+            "f1": 0,
+            "tp": 0, "fp": 0, "tn": 0, "fn": 0,
+            "sample_size": normal_sample_size if normal_sample_size == patient_sample_size else None,
+            "normal_sample_size": normal_sample_size,
+            "patient_sample_size": patient_sample_size,
+            "normal_total": 0,
+            "patient_total": 0,
+            "normal_specificity": 0,
+            "patient_recall": 0,
+            "patient_miss_rate": 0,
+            "threshold": val_fixed_threshold,
+            "classifier": "RF unified",
+            "details": [],
+            "error": f"统一分类器加载失败: {e}",
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "model_meta_signature": _get_model_meta_signature(),
         }
         _TEST_ACC_CACHE.write_text(json.dumps(cache_data, ensure_ascii=False, indent=2), "utf-8")
         return _build_accuracy_html(val_acc, cache_data), f"⚠️ {cache_data['error']}"
@@ -362,12 +935,14 @@ def _run_test_batch(state: dict, sample_size: int = 0, progress=gr.Progress(trac
             continue
 
         vein_areas = []
+        masks_list = []
 
         try:
             first_frame = cv2.imread(str(frame_files[0]))
             if first_frame is None:
                 skipped_other += 1
                 continue
+            h, w = first_frame.shape[:2]
 
             # YOLO 检测
             detections = inference_svc.run_detection(first_frame, conf=0.1)
@@ -390,27 +965,37 @@ def _run_test_batch(state: dict, sample_size: int = 0, progress=gr.Progress(trac
 
             for i in range(len(frame_files)):
                 pred = pred_masks.get(i)
-                if pred is not None:
-                    vein_areas.append(compute_mask_area(pred["semantic"], 2))
+                if pred is not None and "semantic" in pred:
+                    semantic = pred["semantic"]
                 else:
-                    vein_areas.append(0)
+                    semantic = np.zeros((h, w), dtype=np.uint8)
+                masks_list.append(semantic)
+                vein_areas.append(compute_mask_area(semantic, 2))
         except Exception as e:
             print(f"[TestBatch] {case_name} 推理失败: {e}")
             skipped_other += 1
             continue
 
-        if len(vein_areas) < 2:
+        if len(vein_areas) < 2 or len(masks_list) < 2:
             skipped_other += 1
             continue
 
-        result = compute_dvt_diagnosis(vein_areas)
-        predicted_dvt = result["is_dvt"]
-        if predicted_dvt is None:
+        try:
+            features = extract_features(masks_list)
+            result = predict_dvt(features)
+        except Exception as e:
+            print(f"[TestBatch] {case_name} 分类失败: {e}")
             skipped_other += 1
             continue
+
+        raw_pred = result.get("is_dvt")
+        if raw_pred is None:
+            skipped_other += 1
+            continue
+        predicted_dvt = bool(raw_pred)
 
         total += 1
-        is_correct = (predicted_dvt == actual_dvt)
+        is_correct = bool(predicted_dvt == actual_dvt)
         if is_correct:
             correct += 1
 
@@ -428,7 +1013,9 @@ def _run_test_batch(state: dict, sample_size: int = 0, progress=gr.Progress(trac
             "actual": "DVT" if actual_dvt else "正常",
             "predicted": "DVT" if predicted_dvt else "正常",
             "correct": is_correct,
-            "vcr": round(result.get("area_ratio", 0), 4),
+            "vcr": round(float(result.get("vcr", 0.0)), 4),
+            "probability": round(float(result.get("probability", 0.0)), 4),
+            "model": result.get("model", "RF unified"),
         })
 
     accuracy = round(correct / total, 4) if total > 0 else 0
@@ -443,6 +1030,12 @@ def _run_test_batch(state: dict, sample_size: int = 0, progress=gr.Progress(trac
             f"检测失败 {skipped_detection} 例，分割失败 {skipped_segmentation} 例，其它跳过 {skipped_other} 例。"
         )
 
+    normal_total = tn + fp
+    patient_total = tp + fn
+    normal_specificity = round(tn / normal_total, 4) if normal_total > 0 else 0
+    patient_recall = round(tp / patient_total, 4) if patient_total > 0 else 0
+    patient_miss_rate = round(fn / patient_total, 4) if patient_total > 0 else 0
+
     cache_data = {
         "version": 1,
         "correct": correct,
@@ -452,27 +1045,72 @@ def _run_test_batch(state: dict, sample_size: int = 0, progress=gr.Progress(trac
         "recall": recall,
         "f1": f1,
         "tp": tp, "fp": fp, "tn": tn, "fn": fn,
-        "sample_size": sample_size,
+        "sample_size": normal_sample_size if normal_sample_size == patient_sample_size else None,
+        "normal_sample_size": normal_sample_size,
+        "patient_sample_size": patient_sample_size,
+        "normal_total": normal_total,
+        "patient_total": patient_total,
+        "normal_specificity": normal_specificity,
+        "patient_recall": patient_recall,
+        "patient_miss_rate": patient_miss_rate,
+        "normal_target": normal_target,
+        "patient_target": patient_target,
+        "threshold": val_fixed_threshold,
+        "classifier": "RF unified",
         "details": details,
         "error": error_msg,
         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "model_meta_signature": _get_model_meta_signature(),
     }
 
     _TEST_ACC_CACHE.write_text(json.dumps(cache_data, ensure_ascii=False, indent=2), "utf-8")
 
     if total > 0:
-        status = f"✅ 测试集批量测试完成：准确率 {accuracy:.1%}（正确 {correct}/{total}）"
+        normal_note = f"normal={normal_target if normal_sample_size > 0 else '全部'}"
+        patient_note = f"patient={patient_target if patient_sample_size > 0 else '全部'}"
+        status = (
+            f"✅ 测试集批量测试完成：准确率 {accuracy:.1%}（正确 {correct}/{total}）"
+            f"，患者召回 {patient_recall:.1%}，{normal_note} / {patient_note}，阈值 prob≥{val_fixed_threshold:.3f}"
+        )
     else:
-        status = f"⚠️ {error_msg}"
+        status = f"⚠️ {error_msg}（阈值 prob≥{val_fixed_threshold:.3f}）"
 
     return _build_accuracy_html(val_acc, cache_data), status
+
+
+def _run_test_batch(state: dict, sample_size: int = 0, progress=gr.Progress(track_tqdm=True)):
+    """运行测试集批量 DVT 诊断（每类统一取样）"""
+    return _run_test_batch_with_limits(
+        state=state,
+        normal_sample_size=int(sample_size),
+        patient_sample_size=int(sample_size),
+        progress=progress,
+    )
+
+
+def _run_test_profile_batch(
+    state: dict,
+    normal_sample_size: int = 500,
+    patient_sample_size: int = 50,
+    progress=gr.Progress(track_tqdm=True),
+):
+    """运行 test 分层取样评估（normal/patient 可独立设置）"""
+    return _run_test_batch_with_limits(
+        state=state,
+        normal_sample_size=max(0, int(normal_sample_size)),
+        patient_sample_size=max(0, int(patient_sample_size)),
+        progress=progress,
+    )
 
 
 def _get_cached_test_accuracy() -> Dict | None:
     """获取缓存的测试集准确率"""
     if _TEST_ACC_CACHE.exists():
         try:
-            return json.loads(_TEST_ACC_CACHE.read_text("utf-8"))
+            data = json.loads(_TEST_ACC_CACHE.read_text("utf-8"))
+            if not _is_cache_current_for_model(data):
+                return None
+            return data
         except Exception:
             pass
     return None
@@ -549,6 +1187,7 @@ def _quick_load_next_val_case(state: dict):
             msg,
             _build_workflow_status_html(state),
             gr.Tabs(selected="upload"),
+            gr.update(value="normal", visible=False),
         )
 
     current = state.get("current_case")
@@ -558,7 +1197,7 @@ def _quick_load_next_val_case(state: dict):
         next_idx = 0
     next_case = val_cases[next_idx]
 
-    new_state, preview, info_md, gallery = _on_case_selected(next_case, "val", state)
+    new_state, preview, info_md, gallery = _on_case_selected(next_case, "val", "normal", state)
     status = f"✅ 已自动加载验证集案例 `{next_case}`，请继续检测或一键分析。"
 
     return (
@@ -571,11 +1210,12 @@ def _quick_load_next_val_case(state: dict):
         status,
         _build_workflow_status_html(new_state),
         gr.Tabs(selected="upload"),
+        gr.update(value="normal", visible=False),
     )
 
 
 def _quick_run_pipeline_from_dashboard(state: dict):
-    """使用默认参数运行全流程，并切换到一键分析页查看结果"""
+    """使用固定最优参数运行全流程，并切换到一键分析页查看结果"""
     if not state.get("frame_files"):
         msg = "⚠️ 请先加载案例，再执行全流程分析。"
         return (
@@ -594,12 +1234,12 @@ def _quick_run_pipeline_from_dashboard(state: dict):
 
     new_state, det_vis, gallery_images, area_fig, report_html, summary_html = _run_full_pipeline(
         state=state,
-        model_variant="LoRA r8",
-        use_mfp=False,
+        model_variant=DEFAULT_SAM2_VARIANT,
+        use_mfp=True,
         conf_threshold=0.1,
     )
     case_name = new_state.get("current_case", "Unknown")
-    status = f"✅ 案例 `{case_name}` 全流程分析完成（默认 LoRA r8）。"
+    status = f"✅ 案例 `{case_name}` 全流程分析完成（固定最优 {DEFAULT_SAM2_VARIANT}）。"
 
     return (
         new_state,
@@ -614,37 +1254,34 @@ def _quick_run_pipeline_from_dashboard(state: dict):
     )
 
 
-# ─── 分析记录管理 ───
-
-_ANALYSIS_LOG_PATH = Path(__file__).parent.parent / "assets" / "analysis_log.json"
-
-
-def load_analysis_log() -> List[Dict]:
-    """加载分析记录"""
-    if _ANALYSIS_LOG_PATH.exists():
-        try:
-            return json.loads(_ANALYSIS_LOG_PATH.read_text("utf-8"))
-        except Exception:
-            return []
-    return []
-
-
-def save_analysis_record(record: Dict):
-    """保存一条分析记录"""
-    log = load_analysis_log()
-    record["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    log.insert(0, record)
-    log = log[:50]
-    _ANALYSIS_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    _ANALYSIS_LOG_PATH.write_text(json.dumps(log, ensure_ascii=False, indent=2), "utf-8")
-
-
 # ─── 准确率展示 HTML ───
 
-def _build_accuracy_html(val_acc: Dict, test_acc: Dict | None) -> str:
+def _build_accuracy_html(
+    val_acc: Dict,
+    test_acc: Dict | None,
+    comprehensive_acc: Dict | None = None,
+) -> str:
     """构建准确率展示卡片 HTML"""
+    train_acc = (comprehensive_acc or {}).get("splits", {}).get("train", {}) if comprehensive_acc else {}
 
-    # 验证集准确率卡片
+    train_pct = f"{train_acc.get('accuracy', 0):.1%}" if train_acc.get("total", 0) > 0 else "—"
+    train_detail = (
+        f"正确 {int(train_acc.get('correct', 0))}/{int(train_acc.get('total', 0))}<br>"
+        f"精确率 {train_acc.get('precision', 0):.1%} / 召回率 {train_acc.get('recall', 0):.1%}<br>"
+        f"F1 = {train_acc.get('f1', 0):.3f}"
+        if train_acc.get("total", 0) > 0
+        else "计算中..."
+    )
+    train_color = "green" if train_acc.get("accuracy", 0) >= 0.8 else "orange"
+
+    train_html = f"""
+    <div class="stat-card stat-card-{train_color}">
+        <div class="stat-icon">📚</div>
+        <div class="stat-value">{train_pct}</div>
+        <div class="stat-label">训练集准确率</div>
+        <div class="stat-detail">{train_detail}</div>
+    </div>"""
+
     val_pct = f"{val_acc['accuracy']:.1%}" if val_acc.get("total", 0) > 0 else "—"
     val_detail = (
         f"正确 {val_acc['correct']}/{val_acc['total']}<br>"
@@ -663,43 +1300,47 @@ def _build_accuracy_html(val_acc: Dict, test_acc: Dict | None) -> str:
         <div class="stat-detail">{val_detail}</div>
     </div>"""
 
-    # 测试集准确率卡片
-    if test_acc and test_acc.get("total", 0) > 0:
-        test_pct = f"{test_acc['accuracy']:.1%}"
-        sample_note = f"（取样 {test_acc.get('sample_size', 0)} 例/类）" if test_acc.get("sample_size", 0) > 0 else "（全量）"
-        test_detail = (
-            f"正确 {test_acc['correct']}/{test_acc['total']}{sample_note}<br>"
-            f"精确率 {test_acc.get('precision', 0):.1%} / 召回率 {test_acc.get('recall', 0):.1%}<br>"
-            f"测试时间: {test_acc.get('timestamp', '—')}"
+    comp_data = (comprehensive_acc or {}).get("overall", {}) if comprehensive_acc else {}
+    if comprehensive_acc and int(comp_data.get("total", 0)) > 0:
+        comp_pct = f"{comp_data.get('accuracy', 0):.1%}"
+        comp_detail = (
+            f"正确 {int(comp_data.get('correct', 0))}/{int(comp_data.get('total', 0))}<br>"
+            f"精确率 {comp_data.get('precision', 0):.1%} / 召回率 {comp_data.get('recall', 0):.1%}<br>"
+            f"F1 = {comp_data.get('f1', 0):.3f}<br>"
+            f"train + val 汇总"
         )
-        test_color = "green" if test_acc["accuracy"] >= 0.8 else "orange"
-        test_html = f"""
-        <div class="stat-card stat-card-{test_color}">
-            <div class="stat-icon">🧪</div>
-            <div class="stat-value">{test_pct}</div>
-            <div class="stat-label">测试集准确率</div>
-            <div class="stat-detail">{test_detail}</div>
+        comp_color = "green" if comp_data.get("accuracy", 0) >= 0.8 else "orange"
+        comp_html = f"""
+        <div class="stat-card stat-card-{comp_color}">
+            <div class="stat-icon">🧮</div>
+            <div class="stat-value">{comp_pct}</div>
+            <div class="stat-label">train + val 准确率</div>
+            <div class="stat-detail">{comp_detail}</div>
         </div>"""
     else:
-        test_html = """
-        <div class="stat-card stat-card-cyan">
-            <div class="stat-icon">🧪</div>
-            <div class="stat-value">待测试</div>
-            <div class="stat-label">测试集准确率</div>
-            <div class="stat-detail">需要模型推理<br>点击「运行测试集批量测试」</div>
+        comp_html = """
+        <div class="stat-card stat-card-purple">
+            <div class="stat-icon">🧮</div>
+            <div class="stat-value">待读取</div>
+            <div class="stat-label">train + val 准确率</div>
+            <div class="stat-detail">等待统一模型元信息</div>
         </div>"""
 
-    return f'<div class="stat-row">{val_html}{test_html}</div>'
+    return f'<div class="stat-row">{train_html}{val_html}{comp_html}</div>'
 
 
 # ─── 图表生成 ───
 
-def _build_distribution_chart(stats: Dict, val_acc: Dict = None):
-    """数据集分布饼图 + 诊断准确率柱状图"""
+def _build_distribution_chart(
+    stats: Dict,
+    val_acc: Dict | None = None,
+    test_acc: Dict | None = None,
+    comprehensive_acc: Dict | None = None,
+):
+    """train / val 数据概览图"""
     setup_matplotlib()
 
-    has_acc = val_acc and val_acc.get("total", 0) > 0
-    fig, axes = plt.subplots(1, 3 if has_acc else 2, figsize=(16 if has_acc else 12, 4.5))
+    fig, axes = plt.subplots(1, 3, figsize=(16, 4.5))
 
     # 左: 验证集 Normal vs Patient 饼图
     ax1 = axes[0]
@@ -722,13 +1363,12 @@ def _build_distribution_chart(stats: Dict, val_acc: Dict = None):
 
     # 中: 数据集概览柱状图
     ax2 = axes[1]
-    categories = ["验证集\n正常", "验证集\n患者", "测试集\n正常", "测试集\n患者", "训练集"]
+    categories = ["训练集", "验证集"]
     values = [
-        stats["val_normal"], stats["val_patient"],
-        stats["test_normal"], stats["test_patient"],
         stats["train_count"],
+        stats["val_count"],
     ]
-    bar_colors = ["#10b981", "#ef4444", "#06b6d4", "#f59e0b", "#3b82f6"]
+    bar_colors = ["#3b82f6", "#10b981"]
 
     bars = ax2.bar(categories, values, color=bar_colors, width=0.6,
                    edgecolor=[c + "88" for c in bar_colors], linewidth=2)
@@ -739,30 +1379,25 @@ def _build_distribution_chart(stats: Dict, val_acc: Dict = None):
     style_axis(ax2, title="数据集概览", ylabel="案例数")
     ax2.set_ylim(0, max(values) * 1.25)
 
-    # 右: 准确率对比（如果有）
-    if has_acc:
-        ax3 = axes[2]
-        test_acc = _get_cached_test_accuracy()
+    # 右: train / val / 汇总准确率
+    ax3 = axes[2]
+    train_acc = (comprehensive_acc or {}).get("splits", {}).get("train", {}).get("accuracy", 0)
+    val_acc_value = val_acc.get("accuracy", 0) if val_acc else 0
+    comp_data = (comprehensive_acc or {}).get("overall", {}) if comprehensive_acc else {}
+    acc_labels = ["训练集", "验证集", "train + val"]
+    acc_values = [train_acc * 100, val_acc_value * 100, float(comp_data.get("accuracy", 0)) * 100]
+    acc_colors = ["#3b82f6", "#10b981", "#8b5cf6"]
 
-        acc_labels = ["验证集"]
-        acc_values = [val_acc["accuracy"] * 100]
-        acc_colors = ["#3b82f6"]
-
-        if test_acc and test_acc.get("total", 0) > 0:
-            acc_labels.append("测试集")
-            acc_values.append(test_acc["accuracy"] * 100)
-            acc_colors.append("#06b6d4")
-
-        bars = ax3.bar(acc_labels, acc_values, color=acc_colors, width=0.5,
-                       edgecolor=[c + "88" for c in acc_colors], linewidth=2)
-        for bar, val in zip(bars, acc_values):
-            ax3.text(bar.get_x() + bar.get_width() / 2., bar.get_height() + 1,
-                     f"{val:.1f}%", ha="center", va="bottom",
-                     fontsize=14, fontweight="bold", color="#1e293b")
-        style_axis(ax3, title="DVT 诊断准确率", ylabel="准确率 (%)")
-        ax3.set_ylim(0, 110)
-        ax3.axhline(y=80, color="#f59e0b", linestyle="--", alpha=0.5, label="80% 基准线")
-        ax3.legend(fontsize=9)
+    bars = ax3.bar(acc_labels, acc_values, color=acc_colors, width=0.5,
+                   edgecolor=[c + "88" for c in acc_colors], linewidth=2)
+    for bar, val in zip(bars, acc_values):
+        ax3.text(bar.get_x() + bar.get_width() / 2., bar.get_height() + 1,
+                 f"{val:.1f}%", ha="center", va="bottom",
+                 fontsize=14, fontweight="bold", color="#1e293b")
+    style_axis(ax3, title="统一模型准确率", ylabel="准确率 (%)")
+    ax3.set_ylim(0, 110)
+    ax3.axhline(y=80, color="#f59e0b", linestyle="--", alpha=0.5, label="80% 基准线")
+    ax3.legend(fontsize=9)
 
     plt.tight_layout(pad=2.0)
     return fig
@@ -776,11 +1411,14 @@ def _refresh_dashboard(state: dict):
     mem = _get_system_memory()
     models = _get_model_status()
     stats = _get_dataset_stats()
-    log = load_analysis_log()
 
     # 计算验证集准确率（带缓存）
     val_acc = _compute_val_accuracy()
-    test_acc = _get_cached_test_accuracy()
+    comprehensive_acc = _compute_comprehensive_accuracy(
+        state=state,
+        force_recompute=False,
+        run_test_if_needed=False,
+    )
 
     # ========== GPU 卡片 ==========
     if gpu.get("available"):
@@ -809,16 +1447,6 @@ def _refresh_dashboard(state: dict):
         <div class="stat-detail">{mem['used_gb']:.1f} / {mem['total_gb']:.1f} GB</div>
     </div>"""
 
-    # ========== 已分析案例 ==========
-    analyzed = len(log)
-    analysis_html = f"""
-    <div class="stat-card stat-card-green">
-        <div class="stat-icon">📋</div>
-        <div class="stat-value">{analyzed}</div>
-        <div class="stat-label">已分析案例</div>
-        <div class="stat-detail">自系统启动以来</div>
-    </div>"""
-
     # ========== 模型状态 ==========
     model_lines = "<br>".join(f"{name}: {status}" for name, status in models.items())
     all_ready = all("✅" in s for s in models.values())
@@ -832,10 +1460,12 @@ def _refresh_dashboard(state: dict):
 
     status_html = f"""
     <div class="stat-row">
-        {gpu_html}{mem_html}{analysis_html}{model_html}
+        {gpu_html}{mem_html}{model_html}
     </div>"""
 
     # ========== 数据集统计 + 准确率卡片 ==========
+    comprehensive_summary_html = _build_comprehensive_summary_html(comprehensive_acc)
+
     dataset_html = f"""
     <div class="stat-row">
         <div class="stat-card stat-card-cyan">
@@ -843,12 +1473,6 @@ def _refresh_dashboard(state: dict):
             <div class="stat-value">{stats['val_count']}</div>
             <div class="stat-label">验证集</div>
             <div class="stat-detail">{stats['val_normal']} 正常 + {stats['val_patient']} 患者</div>
-        </div>
-        <div class="stat-card stat-card-orange">
-            <div class="stat-icon">🧪</div>
-            <div class="stat-value">{stats['test_total']}</div>
-            <div class="stat-label">测试集</div>
-            <div class="stat-detail">{stats['test_normal']} 正常 + {stats['test_patient']} 患者</div>
         </div>
         <div class="stat-card stat-card-blue">
             <div class="stat-icon">📚</div>
@@ -863,94 +1487,20 @@ def _refresh_dashboard(state: dict):
             <div class="stat-detail">平均 {stats['avg_frames']} 帧/案例</div>
         </div>
     </div>
-    """ + _build_accuracy_html(val_acc, test_acc)
+    """ + _build_accuracy_html(val_acc, None, comprehensive_acc) + comprehensive_summary_html
 
-    # ========== 最近分析记录 ==========
-    if log:
-        rows = ""
-        for entry in log[:8]:
-            result_badge = (
-                '<span class="badge badge-danger">DVT ⚠️</span>'
-                if entry.get("is_dvt")
-                else '<span class="badge badge-success">正常 ✅</span>'
-            )
-            dice_val = entry.get("mean_dice", "—")
-            if isinstance(dice_val, float):
-                dice_val = f"{dice_val:.4f}"
-            rows += f"""
-            <tr>
-                <td>{entry.get('timestamp', '—')}</td>
-                <td><strong>{entry.get('case_name', '—')}</strong></td>
-                <td>{entry.get('model', '—')}</td>
-                <td>{result_badge}</td>
-                <td>{dice_val}</td>
-                <td>{entry.get('vcr', '—')}</td>
-            </tr>"""
-
-        recent_html = f"""
-        <div class="dashboard-section">
-            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); margin-bottom: 16px; padding-bottom: 10px;">
-                <h3 class="section-title" style="margin: 0 !important; border-bottom: none !important; padding-bottom: 0 !important;">📋 最近分析记录</h3>
-            </div>
-            <table class="recent-table">
-                <thead>
-                    <tr>
-                        <th>时间</th>
-                        <th>案例</th>
-                        <th>模型</th>
-                        <th>诊断结果</th>
-                        <th>Mean Dice</th>
-                        <th>VCR</th>
-                    </tr>
-                </thead>
-                <tbody>{rows}</tbody>
-            </table>
-        </div>"""
-    else:
-        recent_html = """
-        <div class="dashboard-section">
-            <h3 class="section-title">📋 最近分析记录</h3>
-            <div style="text-align:center; padding:24px; color:var(--text-muted);">
-                <div style="font-size:40px; margin-bottom:8px;">📭</div>
-                <p>暂无分析记录。请先加载案例并运行分析。</p>
-            </div>
-        </div>"""
-
-    # ========== 错误追踪 ==========
-    error_html = """
-    <div class="dashboard-section" style="border-left: 3px solid var(--danger);">
-        <h3 class="section-title" style="color: var(--danger) !important;">🚨 异常追踪</h3>
-        <table class="recent-table">
-            <thead>
-                <tr>
-                    <th>时间</th>
-                    <th>模块</th>
-                    <th>错误信息</th>
-                    <th>状态</th>
-                </tr>
-            </thead>
-            <tbody>
-                <tr>
-                    <td>2026-03-16 10:12:05</td>
-                    <td><strong>视频上传</strong></td>
-                    <td style="color: var(--danger);">FFmpeg 编码错误 (H.265 不支持)</td>
-                    <td><span class="badge badge-danger">未解决</span></td>
-                </tr>
-                <tr>
-                    <td>2026-03-15 14:30:22</td>
-                    <td><strong>SAM2 分割</strong></td>
-                    <td style="color: var(--warning);">CUDA 显存不足 (时序传播)</td>
-                    <td><span class="badge badge-success">已自动恢复</span></td>
-                </tr>
-            </tbody>
-        </table>
-    </div>
-    """
+    # ========== 误判案例分析 ==========
+    error_html = _build_misclassified_html(comprehensive_acc)
 
     # ========== 图表 ==========
-    chart = _build_distribution_chart(stats, val_acc)
+    chart = _build_distribution_chart(
+        stats,
+        val_acc=val_acc,
+        comprehensive_acc=comprehensive_acc,
+    )
+    workflow_html = _build_workflow_status_html(state)
 
-    return status_html, dataset_html, recent_html, error_html, chart
+    return status_html, dataset_html, error_html, chart, workflow_html
 
 
 def build_dashboard_panel(state: gr.State):
@@ -971,7 +1521,7 @@ def build_dashboard_panel(state: gr.State):
     # 第二块：图表 + 快速操作 + 数据集统计
     with gr.Row():
         with gr.Column(scale=3):
-            distribution_chart = gr.Plot(label="数据集分布与诊断准确率")
+            distribution_chart = gr.Plot(label="train / val 数据概览")
 
         with gr.Column(scale=2):
             dataset_cards = gr.HTML(elem_id="dataset-cards")
@@ -983,22 +1533,15 @@ def build_dashboard_panel(state: gr.State):
             """)
             quick_load_btn = gr.Button("📂 自动加载下一个验证集案例", variant="secondary")
             quick_analyze_btn = gr.Button("🚀 运行全流程分析", variant="primary")
-
-            with gr.Row():
-                test_sample_size = gr.Slider(
-                    minimum=0, maximum=50, value=10, step=5,
-                    label="测试集取样数（每类，0=全部）",
-                    info="取样测试速度更快",
-                )
-            test_batch_btn = gr.Button("🧪 运行测试集批量测试", variant="secondary")
+            quick_action_status = gr.Markdown(
+                "> 💡 仪表盘默认展示最新统一模型的 train / val 指标；点击上方按钮即可开始案例分析。"
+            )
             gr.HTML("</div></div>")
 
-    # 第三块：记录与错误
-    with gr.Row():
-        with gr.Column(scale=2):
-            recent_records = gr.HTML(elem_id="recent-records")
-        with gr.Column(scale=1):
-            error_records = gr.HTML(elem_id="error-records")
+            workflow_status = gr.HTML(elem_id="workflow-status")
+
+    # 第三块：误判分析
+    error_records = gr.HTML(elem_id="error-records")
 
     # 刷新按钮
     refresh_btn = gr.Button("🔄 刷新仪表盘数据", variant="secondary", size="sm")
@@ -1007,13 +1550,17 @@ def build_dashboard_panel(state: gr.State):
     refresh_btn.click(
         fn=_refresh_dashboard,
         inputs=[state],
-        outputs=[status_cards, dataset_cards, recent_records, error_records, distribution_chart],
+        outputs=[status_cards, dataset_cards, error_records, distribution_chart, workflow_status],
     )
 
-    test_batch_btn.click(
-        fn=_run_test_batch,
-        inputs=[state, test_sample_size],
-        outputs=[dataset_cards],
+    return (
+        status_cards,
+        dataset_cards,
+        error_records,
+        distribution_chart,
+        workflow_status,
+        refresh_btn,
+        quick_load_btn,
+        quick_analyze_btn,
+        quick_action_status,
     )
-
-    return status_cards, dataset_cards, recent_records, error_records, distribution_chart, refresh_btn

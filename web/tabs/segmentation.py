@@ -1,6 +1,6 @@
 """
 模块 3: SAM2 分割传播
-- 支持选择不同模型变体 (Baseline / LoRA / AM+SM+AV)
+- 固定使用最优 SAM2 LoRA 权重
 - 首帧 box prompt → 后续帧 memory 传播
 - 逐帧展示分割结果（动脉红、静脉绿叠加）
 - 收集面积数据供后续诊断
@@ -19,6 +19,21 @@ sys.path.insert(0, str(PROJECT_ROOT / "sam2"))
 
 from web.utils.visualization import overlay_masks, bgr_to_rgb, build_comparison_image
 from web.utils.metrics import compute_frame_metrics, compute_mask_area
+from web.services.inference import DEFAULT_SAM2_VARIANT, DEFAULT_LORA_WEIGHTS
+
+
+FIXED_USE_MFP = True
+
+
+def _get_fixed_sam2_weight_display() -> str:
+    weight_path = DEFAULT_LORA_WEIGHTS.get(DEFAULT_SAM2_VARIANT)
+    if weight_path is None:
+        return DEFAULT_SAM2_VARIANT
+    try:
+        display_path = weight_path.relative_to(PROJECT_ROOT)
+    except ValueError:
+        display_path = weight_path
+    return f"{DEFAULT_SAM2_VARIANT} (`{display_path}`)"
 
 
 def _run_sam2_segmentation(
@@ -64,7 +79,7 @@ def _run_sam2_segmentation(
                 detections=detections,
                 num_frames=len(frame_files),
                 use_mfp=use_mfp,
-                variant=model_variant if model_variant in ("LoRA r8", "LoRA r4") else "LoRA r8",
+                variant=model_variant if model_variant in DEFAULT_LORA_WEIGHTS else DEFAULT_SAM2_VARIANT,
             )
         else:
             # Baseline / AM / SM / AV 变体 — 原始 build_sam2_video_predictor
@@ -272,6 +287,8 @@ def _format_segmentation_report(metrics_list, total_frames, variant):
 
 def build_segmentation_tab(state: gr.State):
     """构建 SAM2 分割 Tab"""
+    fixed_variant = gr.State(DEFAULT_SAM2_VARIANT)
+    fixed_use_mfp = gr.State(FIXED_USE_MFP)
 
     with gr.Row(equal_height=False):
         with gr.Column(scale=2):
@@ -287,31 +304,10 @@ def build_segmentation_tab(state: gr.State):
             </div>
             """)
 
-            model_variant = gr.Radio(
-                choices=[
-                    "Baseline (Large)",
-                    "LoRA r4",
-                    "LoRA r8",
-                    "Baseline + AM",
-                    "Baseline + SM",
-                    "Baseline + AV",
-                    "Baseline + AM + SM + AV",
-                ],
-                value="LoRA r8",
-                label="🧠 模型变体",
-                info="选择不同的 SAM2 模型变体进行分割",
-            )
-
-            use_mfp = gr.Checkbox(
-                label="启用多帧提示 (MFP)",
-                value=False,
-                info="每隔 15 帧用 YOLO 重新锚定，减少误差累积（仅对 LoRA 变体生效）",
-            )
-
             segment_btn = gr.Button("🔬 开始分割", variant="primary", size="lg")
 
-            seg_report = gr.Markdown("""
-> 💡 **操作指引**: 选择模型变体后点击「开始分割」。
+            seg_report = gr.Markdown(f"""
+> 💡 **操作指引**: 当前 UI 已固定最优 SAM2 分割配置 `{_get_fixed_sam2_weight_display()}`，点击「开始分割」即可。
 > 分割完成后可在右侧图库中查看各帧分割结果。
 """)
 
@@ -331,6 +327,6 @@ def build_segmentation_tab(state: gr.State):
 
     segment_btn.click(
         fn=_run_sam2_segmentation,
-        inputs=[state, model_variant, use_mfp],
+        inputs=[state, fixed_variant, fixed_use_mfp],
         outputs=[state, seg_preview, seg_gallery, seg_report],
     )
