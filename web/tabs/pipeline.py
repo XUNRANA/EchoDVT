@@ -265,7 +265,7 @@ def _build_area_chart(vein_areas, artery_areas):
 def _build_summary_card(result):
     """诊断摘要大卡片"""
     if result.get("is_dvt") is None:
-        return '<div style="text-align:center; padding:20px; color:#94a3b8;">数据不足，无法诊断</div>'
+        return '<div style="text-align:center; padding:20px; color:#64748b;">数据不足，无法诊断</div>'
 
     if result["is_dvt"]:
         return f"""
@@ -275,10 +275,10 @@ def _build_summary_card(result):
             <div style="font-size:24px; font-weight:800; color:#ef4444; margin-bottom:6px;">
                 DVT 疑似
             </div>
-            <div style="font-size:14px; color:#fca5a5; margin-bottom:4px;">
+            <div style="font-size:14px; color:#b91c1c; margin-bottom:4px;">
                 VCR = {result.get('area_ratio', 0):.3f} &nbsp;|&nbsp; 置信度 {result['confidence']:.0%}
             </div>
-            <div style="font-size:12px; color:#94a3b8; margin-top:8px; line-height:1.6;">
+            <div style="font-size:12px; color:#64748b; margin-top:8px; line-height:1.6;">
                 静脉面积在压缩过程中变化极小，拒绝塌陷<br>
                 <b>建议进一步临床检查</b>
             </div>
@@ -291,10 +291,10 @@ def _build_summary_card(result):
             <div style="font-size:24px; font-weight:800; color:#10b981; margin-bottom:6px;">
                 正常
             </div>
-            <div style="font-size:14px; color:#6ee7b7; margin-bottom:4px;">
+            <div style="font-size:14px; color:#047857; margin-bottom:4px;">
                 VCR = {result.get('area_ratio', 0):.3f} &nbsp;|&nbsp; 置信度 {result['confidence']:.0%}
             </div>
-            <div style="font-size:12px; color:#94a3b8; margin-top:8px; line-height:1.6;">
+            <div style="font-size:12px; color:#64748b; margin-top:8px; line-height:1.6;">
                 静脉在压缩过程中正常塌陷，面积缩减 {result.get('area_change_percent', 0):.0f}%<br>
                 未见血栓征象
             </div>
@@ -352,7 +352,7 @@ def _build_full_report_html(state, detections, result, features,
             ("circ_range", features.get("circ_range", 0), "圆度范围"),
         ]
         for name, val, desc in feat_items:
-            feat_rows += f"<tr><td style='font-weight:600;'>{name}</td><td>{val:.4f}</td><td style='color:#94a3b8;'>{desc}</td></tr>"
+            feat_rows += f"<tr><td style='font-weight:600;'>{name}</td><td>{val:.4f}</td><td style='color:#64748b;'>{desc}</td></tr>"
 
     # ---- 分割指标 ----
     seg_summary = ""
@@ -382,7 +382,7 @@ def _build_full_report_html(state, detections, result, features,
 
     html = f"""
     <div class="full-report">
-      <h2 style="color:#e2e8f0; margin:0 0 16px 0; font-size:20px; border-bottom:2px solid #334155; padding-bottom:8px;">
+      <h2 style="color:#1e293b; margin:0 0 16px 0; font-size:20px; border-bottom:2px solid #e2e8f0; padding-bottom:8px;">
         DVT 诊断报告
       </h2>
 
@@ -440,9 +440,9 @@ def _build_full_report_html(state, detections, result, features,
                 {result.get('diagnosis', '未知')}
               </td></tr>
         </table>
-        <div style="background:#0f172a; padding:12px 16px; border-radius:8px; margin-top:8px;
+        <div style="background:#f8fafc; padding:12px 16px; border-radius:8px; margin-top:8px;
                     border-left:3px solid #3b82f6;">
-          <p style="color:#94a3b8; font-size:12px; margin:0; line-height:1.7;">
+          <p style="color:#64748b; font-size:12px; margin:0; line-height:1.7;">
             <b>诊断原理</b>：在压缩超声检查中，正常静脉会被探头压瘪（面积大幅缩小 → VCR 接近 0），
             而有血栓的静脉拒绝塌陷（面积基本不变 → VCR 接近 1）。<br>
             本系统综合 19 维时序特征进行判断，以高召回率为优化目标，减少漏诊风险。
@@ -458,12 +458,12 @@ def build_pipeline_tab(state: gr.State):
     """构建一键分析 Tab"""
 
     gr.HTML("""
-    <div style="padding:16px 20px; background:linear-gradient(135deg, #1e3a5f, #1e293b);
-                border-radius:12px; border:1px solid #334155; margin-bottom:8px;">
-        <h3 style="margin:0 0 4px 0; color:#e2e8f0; font-size:16px;">
+    <div style="padding:16px 20px; background:linear-gradient(135deg, #f0f9ff, #eff6ff);
+                border-radius:12px; border:1px solid #e2e8f0; margin-bottom:8px;">
+        <h3 style="margin:0 0 4px 0; color:#1e293b; font-size:16px;">
             一键全流程分析
         </h3>
-        <p style="margin:0; color:#94a3b8; font-size:13px;">
+        <p style="margin:0; color:#64748b; font-size:13px;">
             自动执行 YOLO 检测 → SAM2 分割 → 特征提取 → DVT 诊断，生成完整报告
         </p>
     </div>
@@ -490,6 +490,7 @@ def build_pipeline_tab(state: gr.State):
 
             diagnosis_summary = gr.HTML(
                 '<div style="text-align:center; padding:24px; color:#64748b;">加载数据后点击「开始全流程分析」</div>'
+
             )
 
             det_preview = gr.Image(label="首帧检测结果", height=280, type="numpy")
@@ -510,6 +511,7 @@ def build_pipeline_tab(state: gr.State):
                 with gr.Tab("完整报告"):
                     report_html = gr.HTML(
                         '<div style="padding:20px; color:#64748b; text-align:center;">分析完成后将显示详细诊断报告</div>'
+
                     )
 
     # ========== 事件绑定 ==========

@@ -95,7 +95,7 @@ def _run_comparison(state: dict, variant_a: str, variant_b: str):
     current_vals_plot = current_vals + current_vals[:1]
     ref_vals_plot = ref_vals + ref_vals[:1]
 
-    ax2 = fig.add_subplot(122, polar=True, facecolor="#0f172a")
+    ax2 = fig.add_subplot(122, polar=True, facecolor="#fafbfc")
     ax2.plot(angles, current_vals_plot, "o-", color="#3b82f6", linewidth=2, label=variant_a)
     ax2.fill(angles, current_vals_plot, color="#3b82f6", alpha=0.15)
     ax2.plot(angles, ref_vals_plot, "s-", color="#06b6d4", linewidth=2, label=variant_b)
@@ -104,11 +104,11 @@ def _run_comparison(state: dict, variant_a: str, variant_b: str):
     ax2.set_xticklabels(radar_labels, fontsize=10, color="#94a3b8")
     ax2.set_ylim(0, 1.0)
     ax2.set_title("Multi-Metric Radar Chart", fontsize=14, fontweight="bold",
-                  color="#f1f5f9", pad=20)
+                  color="#1e293b", pad=20)
     ax2.legend(fontsize=9, loc="lower right")
-    ax2.tick_params(colors="#94a3b8")
-    ax2.spines["polar"].set_color("#334155")
-    ax2.grid(True, alpha=0.3, color="#475569")
+    ax2.tick_params(colors="#64748b")
+    ax2.spines["polar"].set_color("#cbd5e1")
+    ax2.grid(True, alpha=0.3, color="#94a3b8")
 
     plt.tight_layout()
 
@@ -137,12 +137,12 @@ def build_comparison_tab(state: gr.State):
     with gr.Row(equal_height=False):
         with gr.Column(scale=2):
             gr.HTML("""
-            <div style="padding:16px 20px; background:linear-gradient(135deg, #1f2a3f, #1e293b);
-                        border-radius:12px; border:1px solid #334155; margin-bottom:8px;">
-                <h3 style="margin:0 0 4px 0; color:#e2e8f0; font-size:16px;">
+            <div style="padding:16px 20px; background:linear-gradient(135deg, #f0f9ff, #eff6ff);
+                        border-radius:12px; border:1px solid #e2e8f0; margin-bottom:8px;">
+                <h3 style="margin:0 0 4px 0; color:#1e293b; font-size:16px;">
                     ⚖️ Model Comparison
                 </h3>
-                <p style="margin:0; color:#94a3b8; font-size:13px;">
+                <p style="margin:0; color:#64748b; font-size:13px;">
                     Side-by-side comparison of different SAM2 model variants (Baseline / LoRA / AM+SM+AV)
                 </p>
             </div>

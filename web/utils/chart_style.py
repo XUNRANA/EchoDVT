@@ -1,6 +1,6 @@
 """
 EchoDVT 图表样式工具
-- Matplotlib 全局暗黑主题配置
+- Matplotlib 浅色主题配置
 - 中文字体自动检测与回退
 - 统一的坐标轴/图例/网格样式
 """
@@ -44,25 +44,23 @@ def get_chinese_font():
 
 
 def setup_matplotlib():
-    """配置 Matplotlib 全局样式 (用于极简风格大屏)"""
-    # 基础风格
-    plt.style.use('dark_background')
-    
-    # 覆盖关键颜色
+    """配置 Matplotlib 全局样式 (浅色主题)"""
+    plt.style.use('default')
+
     plt.rcParams.update({
-        'figure.facecolor': 'none',     # 完全透明，配合 glassmorphism
-        'axes.facecolor': 'none',       # 完全透明
-        'axes.edgecolor': 'none',       # 隐藏外部边框
+        'figure.facecolor': '#ffffff',
+        'axes.facecolor': '#ffffff',
+        'axes.edgecolor': '#cbd5e1',
         'axes.grid': True,
-        'grid.color': (1.0, 1.0, 1.0, 0.05), # 极淡的网格线
+        'grid.color': '#e2e8f0',
         'grid.linestyle': '--',
         'grid.linewidth': 0.5,
-        'text.color': '#e2e8f0',        # 柔和主文本颜色 (slate-200)
+        'text.color': '#1e293b',
         "xtick.color": "#64748b",
         "ytick.color": "#64748b",
-        "legend.facecolor": "#1e293b",
-        "legend.edgecolor": "#334155",
-        "legend.labelcolor": "#e2e8f0",
+        "legend.facecolor": "#ffffff",
+        "legend.edgecolor": "#e2e8f0",
+        "legend.labelcolor": "#1e293b",
     })
 
     # 中文字体自动检测与回退
@@ -71,24 +69,23 @@ def setup_matplotlib():
         plt.rcParams["font.sans-serif"] = [zh_font, "DejaVu Sans"]
         plt.rcParams["axes.unicode_minus"] = False
     else:
-        # 没有中文字体时，关掉字体警告并使用英文
         warnings.filterwarnings("ignore", category=UserWarning, module="matplotlib")
         plt.rcParams["font.sans-serif"] = ["DejaVu Sans"]
 
 
 def style_axis(ax, title: str = "", xlabel: str = "", ylabel: str = ""):
     """统一的坐标轴样式"""
-    ax.set_facecolor("#0f172a")
+    ax.set_facecolor("#fafbfc")
     if title:
-        ax.set_title(title, fontsize=13, fontweight="bold", color="#e2e8f0")
+        ax.set_title(title, fontsize=13, fontweight="bold", color="#1e293b")
     if xlabel:
-        ax.set_xlabel(xlabel, fontsize=11, color="#94a3b8")
+        ax.set_xlabel(xlabel, fontsize=11, color="#475569")
     if ylabel:
-        ax.set_ylabel(ylabel, fontsize=11, color="#94a3b8")
+        ax.set_ylabel(ylabel, fontsize=11, color="#475569")
     ax.tick_params(colors="#64748b")
     for spine in ax.spines.values():
-        spine.set_color("#334155")
-    ax.grid(True, alpha=0.2, color="#475569")
+        spine.set_color("#cbd5e1")
+    ax.grid(True, alpha=0.4, color="#e2e8f0")
 
 
 # ─── 初始化 ───
