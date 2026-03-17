@@ -16,6 +16,22 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from web.utils.visualization import draw_detection_boxes, overlay_masks, bgr_to_rgb
 from web.utils.metrics import compute_frame_metrics, compute_mask_area, compute_dvt_diagnosis
 from web.utils.chart_style import setup_matplotlib, style_axis
+from web.services.inference import DEFAULT_SAM2_VARIANT, DEFAULT_LORA_WEIGHTS
+
+
+FIXED_USE_MFP = True
+FIXED_YOLO_CONFIDENCE = 0.1
+
+
+def _get_fixed_sam2_weight_display() -> str:
+    weight_path = DEFAULT_LORA_WEIGHTS.get(DEFAULT_SAM2_VARIANT)
+    if weight_path is None:
+        return DEFAULT_SAM2_VARIANT
+    try:
+        display_path = weight_path.relative_to(PROJECT_ROOT)
+    except ValueError:
+        display_path = weight_path
+    return f"{DEFAULT_SAM2_VARIANT} (`{display_path}`)"
 
 
 def _run_full_pipeline(
@@ -75,7 +91,7 @@ def _run_full_pipeline(
                 detections=detections,
                 num_frames=num_frames,
                 use_mfp=use_mfp,
-                variant=model_variant if model_variant in ("LoRA r8", "LoRA r4") else "LoRA r8",
+                variant=model_variant if model_variant in DEFAULT_LORA_WEIGHTS else DEFAULT_SAM2_VARIANT,
             )
         else:
             from tabs.segmentation import _run_baseline_sam2
@@ -153,11 +169,16 @@ def _run_full_pipeline(
         pass
 
     simple_result = compute_dvt_diagnosis(vein_areas)
+    simple_result["model"] = "VCR fallback"
+    simple_result["vcr"] = simple_result.get("area_ratio")
 
     if ml_result is not None:
         simple_result["is_dvt"] = ml_result["is_dvt"]
         simple_result["confidence"] = ml_result["confidence"]
         simple_result["ml_threshold"] = ml_result["threshold"]
+        simple_result["probability"] = ml_result.get("probability")
+        simple_result["model"] = ml_result.get("model", "unknown")
+        simple_result["vcr"] = ml_result.get("vcr", simple_result.get("area_ratio"))
         if ml_result["is_dvt"]:
             simple_result["diagnosis"] = "DVT 疑似（静脉拒绝塌陷）"
         else:
@@ -177,21 +198,6 @@ def _run_full_pipeline(
 
     # 诊断摘要
     summary_html = _build_summary_card(simple_result)
-
-    # 写入 Dashboard 最近分析记录
-    from web.tabs.dashboard import save_analysis_record
-    mean_dice = (
-        float(np.mean([m["mean_dice"] for m in all_frame_metrics]))
-        if all_frame_metrics
-        else None
-    )
-    save_analysis_record({
-        "case_name": state.get("current_case", "Unknown"),
-        "model": model_variant + (" + MFP" if use_mfp else ""),
-        "is_dvt": bool(simple_result.get("is_dvt")),
-        "mean_dice": mean_dice,
-        "vcr": round(simple_result.get("area_ratio", 0), 4),
-    })
 
     progress(1.0, desc="分析完成")
 
@@ -282,6 +288,11 @@ def _build_summary_card(result):
     if result.get("is_dvt") is None:
         return '<div style="text-align:center; padding:20px; color:#64748b;">数据不足，无法诊断</div>'
 
+    vcr_val = result.get('area_ratio') or result.get('vcr', 0) or 0
+    prob_val = result.get('probability')
+    model_name = result.get('model', 'RF unified')
+    prob_str = f"RF prob = {prob_val:.3f}" if prob_val is not None else f"VCR = {vcr_val:.3f}"
+
     if result["is_dvt"]:
         return f"""
         <div style="text-align:center; padding:28px 20px; background:linear-gradient(135deg, rgba(220,38,38,0.12), rgba(239,68,68,0.06));
@@ -291,14 +302,16 @@ def _build_summary_card(result):
                 DVT 疑似
             </div>
             <div style="font-size:14px; color:#b91c1c; margin-bottom:4px;">
-                VCR = {result.get('area_ratio', 0):.3f} &nbsp;|&nbsp; 置信度 {result['confidence']:.0%}
+                {prob_str} &nbsp;|&nbsp; 置信度 {result['confidence']:.0%}
             </div>
             <div style="font-size:12px; color:#64748b; margin-top:8px; line-height:1.6;">
                 静脉面积在压缩过程中变化极小，拒绝塌陷<br>
-                <b>建议进一步临床检查</b>
+                <b>建议进一步临床检查</b><br>
+                <span style="font-size:11px; opacity:0.7;">模型: {model_name} &nbsp;|&nbsp; VCR = {vcr_val:.3f}</span>
             </div>
         </div>"""
     else:
+        area_change = result.get('area_change_percent', (1.0 - vcr_val) * 100)
         return f"""
         <div style="text-align:center; padding:28px 20px; background:linear-gradient(135deg, rgba(16,185,129,0.12), rgba(34,197,94,0.06));
                     border:2px solid #059669; border-radius:16px;">
@@ -307,11 +320,12 @@ def _build_summary_card(result):
                 正常
             </div>
             <div style="font-size:14px; color:#047857; margin-bottom:4px;">
-                VCR = {result.get('area_ratio', 0):.3f} &nbsp;|&nbsp; 置信度 {result['confidence']:.0%}
+                {prob_str} &nbsp;|&nbsp; 置信度 {result['confidence']:.0%}
             </div>
             <div style="font-size:12px; color:#64748b; margin-top:8px; line-height:1.6;">
-                静脉在压缩过程中正常塌陷，面积缩减 {result.get('area_change_percent', 0):.0f}%<br>
-                未见血栓征象
+                静脉在压缩过程中正常塌陷，面积缩减 {area_change:.0f}%<br>
+                未见血栓征象<br>
+                <span style="font-size:11px; opacity:0.7;">模型: {model_name} &nbsp;|&nbsp; VCR = {vcr_val:.3f}</span>
             </div>
         </div>"""
 
@@ -393,7 +407,15 @@ def _build_full_report_html(state, detections, result, features,
 
     # ---- 诊断依据 ----
     ml_thresh = result.get("ml_threshold")
-    thresh_note = f"VCR > {ml_thresh:.3f} (高召回优化阈值)" if ml_thresh else f"min/max > {result.get('threshold', 0.4):.2f}"
+    model_name = result.get("model", "")
+    if "RF" in model_name:
+        thresh_note = f"RF 统一模型 (prob &ge; {ml_thresh:.2f})" if ml_thresh else "RF 统一模型"
+    elif "VCR fallback" in model_name:
+        thresh_note = f"VCR fallback (&gt; {result.get('threshold', 0.05):.2f})"
+    elif ml_thresh:
+        thresh_note = f"VCR > {ml_thresh:.3f} (阈值)"
+    else:
+        thresh_note = f"min/max > {result.get('threshold', 0.05):.2f}"
 
     mfp_note = " + MFP" if use_mfp else ""
 
@@ -440,9 +462,9 @@ def _build_full_report_html(state, detections, result, features,
         </table>
       </div>
 
-      <!-- 19维特征 -->
+      <!-- 21维特征 -->
       <div class="report-section">
-        <h3>5. 时序特征分析 (19维)</h3>
+        <h3>5. 时序特征分析 (21维)</h3>
         {'<table class="report-table"><tr><th>特征</th><th>值</th><th>说明</th></tr>' + feat_rows + '</table>' if feat_rows else '<p style="color:#64748b;">特征提取不可用</p>'}
       </div>
 
@@ -462,7 +484,7 @@ def _build_full_report_html(state, detections, result, features,
           <p style="color:#64748b; font-size:12px; margin:0; line-height:1.7;">
             <b>诊断原理</b>：在压缩超声检查中，正常静脉会被探头压瘪（面积大幅缩小 → VCR 接近 0），
             而有血栓的静脉拒绝塌陷（面积基本不变 → VCR 接近 1）。<br>
-            本系统综合 19 维时序特征进行判断，以高召回率为优化目标，减少漏诊风险。
+            本系统优先使用 `RF unified` 的概率阈值进行判断；统一模型不可用时，回退到同阈值对齐的简单 VCR 规则。
           </p>
         </div>
       </div>
@@ -473,6 +495,9 @@ def _build_full_report_html(state, detections, result, features,
 
 def build_pipeline_tab(state: gr.State):
     """构建一键分析 Tab"""
+    fixed_variant = gr.State(DEFAULT_SAM2_VARIANT)
+    fixed_use_mfp = gr.State(FIXED_USE_MFP)
+    fixed_confidence = gr.State(FIXED_YOLO_CONFIDENCE)
 
     gr.HTML("""
     <div style="padding:16px 20px; background:linear-gradient(135deg, #f0f9ff, #eff6ff);
@@ -481,7 +506,8 @@ def build_pipeline_tab(state: gr.State):
             一键全流程分析
         </h3>
         <p style="margin:0; color:#64748b; font-size:13px;">
-            自动执行 YOLO 检测 → SAM2 分割 → 特征提取 → DVT 诊断，生成完整报告
+            自动执行 YOLO 检测 → SAM2 分割 → 特征提取 → DVT 诊断，生成完整报告。
+            当前流程固定使用最优预设参数。
         </p>
     </div>
     """)
@@ -489,17 +515,6 @@ def build_pipeline_tab(state: gr.State):
     with gr.Row(equal_height=False):
         # ========== 左栏: 参数 + 诊断摘要 ==========
         with gr.Column(scale=2):
-            with gr.Group():
-                model_variant = gr.Radio(
-                    choices=["LoRA r8", "LoRA r4", "Baseline (Large)"],
-                    value="LoRA r8",
-                    label="分割模型",
-                )
-                use_mfp = gr.Checkbox(label="多帧提示 (MFP)", value=False,
-                                      info="每隔 15 帧用 YOLO 重新锚定，减少误差累积")
-                conf_slider = gr.Slider(minimum=0.01, maximum=0.5, value=0.1, step=0.01,
-                                        label="YOLO 置信度阈值")
-
             run_btn = gr.Button(
                 "🚀 开始全流程分析",
                 variant="primary", size="lg",
@@ -534,14 +549,14 @@ def build_pipeline_tab(state: gr.State):
     # ========== 事件绑定 ==========
     run_btn.click(
         fn=_run_full_pipeline,
-        inputs=[state, model_variant, use_mfp, conf_slider],
+        inputs=[state, fixed_variant, fixed_use_mfp, fixed_confidence],
         outputs=[state, det_preview, seg_gallery, area_plot, report_html, diagnosis_summary],
     )
 
     return {
-        "model_variant": model_variant,
-        "use_mfp": use_mfp,
-        "conf_slider": conf_slider,
+        "model_variant": fixed_variant,
+        "use_mfp": fixed_use_mfp,
+        "conf_slider": fixed_confidence,
         "det_preview": det_preview,
         "seg_gallery": seg_gallery,
         "area_plot": area_plot,

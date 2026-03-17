@@ -2,8 +2,27 @@
 EchoDVT 指标计算工具
 """
 
-import numpy as np
+import json
+from pathlib import Path
 from typing import Dict, Tuple, Optional
+
+import numpy as np
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+UNIFIED_MODEL_META = PROJECT_ROOT / "results" / "unified_model" / "rf_unified.json"
+DEFAULT_UNIFIED_THRESHOLD = 0.05
+
+
+def get_unified_threshold(default: float = DEFAULT_UNIFIED_THRESHOLD) -> float:
+    """读取最新统一模型阈值；缺失时回退到默认值。"""
+    if not UNIFIED_MODEL_META.exists():
+        return default
+    try:
+        meta = json.loads(UNIFIED_MODEL_META.read_text("utf-8"))
+        return float(meta.get("threshold", default))
+    except Exception:
+        return default
 
 
 def binary_dice(pred: np.ndarray, gt: np.ndarray) -> float:
@@ -66,7 +85,8 @@ def compute_mask_area(mask: np.ndarray, cls_value: int) -> int:
 
 def compute_dvt_diagnosis(
     frame_vein_areas: list,
-    threshold: float = 0.4,
+    threshold: float = DEFAULT_UNIFIED_THRESHOLD,
+    robust: bool = True,
 ) -> Dict:
     """
     基于静脉面积变化率的 DVT 诊断
@@ -79,7 +99,8 @@ def compute_dvt_diagnosis(
 
     Args:
         frame_vein_areas: 每帧的静脉面积列表
-        threshold: 判断阈值，> threshold 判为 DVT
+        threshold: 回退规则阈值，默认与最新统一模型阈值保持一致
+        robust: 是否使用鲁棒 VCR（P10 代替 min，过滤分割噪声）
 
     Returns:
         诊断结果字典
@@ -105,8 +126,19 @@ def compute_dvt_diagnosis(
             "is_dvt": None,
         }
 
-    min_area = min(areas)
     max_area = max(areas)
+
+    if robust and len(areas) >= 5:
+        # 过滤分割噪声：去掉面积 < max 的 1% 的异常帧
+        noise_floor = max_area * 0.01
+        filtered = [a for a in areas if a >= noise_floor]
+        if len(filtered) >= 3:
+            areas = filtered
+        # 用 P5 代替 min，与 classify_dvt.py 保持一致
+        p5 = float(np.percentile(areas, 5))
+        min_area = int(p5)
+    else:
+        min_area = min(areas)
 
     if max_area < 1:
         area_ratio = 0.0

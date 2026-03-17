@@ -1,6 +1,6 @@
 """
 模块 4: DVT 诊断结果
-- 基于 19 维时序特征的智能诊断
+- 基于 21 维时序特征的智能诊断
 - 面积变化曲线可视化
 - 诊断结果展示（含关键特征表）
 """
@@ -13,7 +13,7 @@ import sys
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from web.utils.metrics import compute_dvt_diagnosis
+from web.utils.metrics import compute_dvt_diagnosis, get_unified_threshold
 from web.utils.chart_style import setup_matplotlib, style_axis
 
 import matplotlib
@@ -21,11 +21,12 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 
-def _run_diagnosis(state: dict, threshold: float):
+def _run_diagnosis(state: dict):
     """执行 DVT 诊断（支持完整特征提取）"""
     vein_areas = state.get("vein_areas", [])
     artery_areas = state.get("artery_areas", [])
     pred_masks = state.get("pred_masks")
+    unified_threshold = get_unified_threshold()
 
     if not vein_areas:
         return (
@@ -34,7 +35,7 @@ def _run_diagnosis(state: dict, threshold: float):
             "等待分割结果...",
         )
 
-    # 尝试使用 InferenceService 进行完整 19 维特征提取
+    # 尝试使用 InferenceService 进行完整 21 维特征提取
     full_features = None
     ml_result = None
     if pred_masks:
@@ -72,13 +73,18 @@ def _run_diagnosis(state: dict, threshold: float):
             ml_result = None
 
     # 兜底：简单 VCR 阈值诊断
-    result = compute_dvt_diagnosis(vein_areas, threshold=threshold)
+    result = compute_dvt_diagnosis(vein_areas, threshold=unified_threshold)
+    result["model"] = "VCR fallback"
+    result["vcr"] = result.get("area_ratio")
 
     # 如果 ML 诊断可用，覆盖部分结果
     if ml_result is not None:
         result["is_dvt"] = ml_result["is_dvt"]
         result["confidence"] = ml_result["confidence"]
         result["ml_threshold"] = ml_result["threshold"]
+        result["probability"] = ml_result.get("probability")
+        result["model"] = ml_result.get("model", "RF unified")
+        result["vcr"] = ml_result.get("vcr", result.get("area_ratio"))
         if ml_result["is_dvt"]:
             result["diagnosis"] = "⚠️ DVT 疑似（静脉拒绝塌陷）"
         else:
@@ -132,6 +138,8 @@ def _run_diagnosis(state: dict, threshold: float):
 def _format_diagnosis_report(result: dict, n_frames: int, features: dict = None) -> str:
     """格式化诊断报告（含完整特征表）"""
     lines = ["### 🩺 DVT 诊断报告\n"]
+    model_name = result.get("model", "")
+    probability = result.get("probability")
 
     if result["is_dvt"] is None:
         lines.append(f"**Status**: {result['diagnosis']}")
@@ -160,12 +168,15 @@ def _format_diagnosis_report(result: dict, n_frames: int, features: dict = None)
 
     lines.append(f"| 静脉最小面积 | {result.get('min_area', 'N/A')} px | |")
     lines.append(f"| 静脉最大面积 | {result.get('max_area', 'N/A')} px | |")
+    if probability is not None:
+        lines.append(f"| RF 概率 | {probability:.4f} | 统一模型输出 |")
 
     # 判断依据
     ml_thresh = result.get("ml_threshold")
-    if ml_thresh is not None:
-        lines.append(f"| ML 阈值 (VCR) | {ml_thresh:.3f} | 高召回率优化 |")
-    lines.append(f"| 简单阈值 | {result.get('threshold', 0.4):.2f} | min/max 阈值 |")
+    if "RF" in model_name and ml_thresh is not None:
+        lines.append(f"| 统一模型阈值 (prob) | {ml_thresh:.3f} | RF unified |")
+    else:
+        lines.append(f"| 回退阈值 (VCR) | {result.get('threshold', get_unified_threshold()):.3f} | 简单 min/max 规则 |")
     lines.append(f"| 置信度 | {result['confidence']:.2f} | |")
     lines.append(f"| 分析帧数 | {n_frames} | |")
 
@@ -177,6 +188,9 @@ def _diagnosis_summary_html(result: dict) -> str:
     if result["is_dvt"] is None:
         return f'<div class="status-pending">{result["diagnosis"]}</div>'
 
+    prob_val = result.get("probability")
+    metric_label = f"RF prob = {prob_val:.3f}" if prob_val is not None else f"VCR = {result.get('area_ratio', 0):.3f}"
+
     if result["is_dvt"]:
         return f"""
         <div style="text-align:center; padding:28px 20px; background:linear-gradient(135deg, rgba(220,38,38,0.12), rgba(239,68,68,0.06));
@@ -186,7 +200,7 @@ def _diagnosis_summary_html(result: dict) -> str:
                 DVT 疑似
             </div>
             <div style="font-size:14px; color:#b91c1c; margin-bottom:4px;">
-                VCR = {result.get('area_ratio', 0):.3f} &nbsp;|&nbsp; 置信度 {result['confidence']:.0%}
+                {metric_label} &nbsp;|&nbsp; 置信度 {result['confidence']:.0%}
             </div>
             <div style="font-size:12px; color:#64748b; margin-top:8px; line-height:1.6;">
                 静脉在超声压缩检查中拒绝塌陷<br>
@@ -202,7 +216,7 @@ def _diagnosis_summary_html(result: dict) -> str:
                 正常
             </div>
             <div style="font-size:14px; color:#047857; margin-bottom:4px;">
-                VCR = {result.get('area_ratio', 0):.3f} &nbsp;|&nbsp; 置信度 {result['confidence']:.0%}
+                {metric_label} &nbsp;|&nbsp; 置信度 {result['confidence']:.0%}
             </div>
             <div style="font-size:12px; color:#64748b; margin-top:8px; line-height:1.6;">
                 静脉正常塌陷，面积缩减 {result.get('area_change_percent', 0):.0f}%<br>
@@ -213,6 +227,7 @@ def _diagnosis_summary_html(result: dict) -> str:
 
 def build_diagnosis_tab(state: gr.State):
     """构建 DVT 诊断 Tab"""
+    unified_threshold = get_unified_threshold()
 
     with gr.Row(equal_height=False):
         with gr.Column(scale=2):
@@ -223,15 +238,13 @@ def build_diagnosis_tab(state: gr.State):
                     🩺 DVT 智能诊断
                 </h3>
                 <p style="margin:0; color:#64748b; font-size:13px;">
-                    基于 19 维时序特征的 DVT 自动评估，通过静脉面积变化分析血栓征象
+                    基于 21 维时序特征的 DVT 自动评估，默认使用最新统一模型阈值
                 </p>
             </div>
             """)
 
-            threshold_slider = gr.Slider(
-                minimum=0.1, maximum=0.8, value=0.4, step=0.05,
-                label="⚙️ DVT 诊断阈值",
-                info="min_area / max_area > 阈值 → 疑似 DVT",
+            gr.Markdown(
+                f"> 当前固定使用最新统一模型 `RF unified`，判断阈值为 `prob ≥ {unified_threshold:.2f}`。"
             )
 
             diagnose_btn = gr.Button("🩺 运行诊断", variant="primary", size="lg")
@@ -243,8 +256,8 @@ def build_diagnosis_tab(state: gr.State):
             """)
 
             diagnosis_report = gr.Markdown("""
-> 💡 **诊断原理**: 正常静脉在探头压迫下会塌陷 (VCR → 0)。
-> 血栓静脉拒绝塌陷 (VCR → 1)。
+> 💡 **诊断原理**: 默认使用最新 `RF unified` 模型输出的 DVT 概率进行判断。
+> 当统一模型不可用时，回退到与当前阈值对齐的简单 VCR 规则。
 """)
 
         with gr.Column(scale=3):
@@ -252,6 +265,6 @@ def build_diagnosis_tab(state: gr.State):
 
     diagnose_btn.click(
         fn=_run_diagnosis,
-        inputs=[state, threshold_slider],
+        inputs=[state],
         outputs=[diagnosis_report, area_plot, diagnosis_html],
     )

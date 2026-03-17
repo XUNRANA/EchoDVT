@@ -15,7 +15,7 @@ YOLO 首帧检测 (动脉/静脉框) + 先验补全
     ↓
 SAM2 + LoRA 视频传播分割 (+ 多帧提示 MFP)
     ↓
-19 维时序特征提取 (VCR, VDR, VARR, MVAR ...)
+21 维时序特征提取 (VCR, VDR, VARR, MVAR ...)
     ↓
 二分类判断 (DVT / 正常)
     ↓
@@ -54,7 +54,7 @@ EchoDVT/
 ├── web/                            # Gradio Web 前端（详见 web/README.md）
 │   ├── app.py                          # 应用入口
 │   ├── services/                       # 推理服务层（单例封装）
-│   ├── tabs/                           # 6 个功能 Tab
+│   ├── tabs/                           # 7 个功能 Tab
 │   ├── utils/                          # 可视化 & 指标工具
 │   └── assets/                         # CSS 样式
 └── results/                        # 推理结果输出目录
@@ -131,7 +131,7 @@ EchoDVT/
 
 ### 创新点 4: 多维特征二分类
 
-分割完成后，从静脉面积时序中提取 **19 维手工特征**，使用 ML 分类器（LR / RF / GBDT + LOO-CV）进行 DVT 判断：
+分割完成后，从静脉面积时序中提取 **21 维手工特征**，使用统一 RF 分类器进行 DVT 判断：
 
 | 特征 | 含义 | 正常人趋势 |
 |------|------|-----------|
@@ -143,27 +143,29 @@ EchoDVT/
 | vein_slope | 面积线性趋势斜率 | 负（下降） |
 | vein_autocorr | 面积 lag-1 自相关 | 高（平滑压缩） |
 | circ_cv / circ_min | 静脉圆度变化 | 变化大（被压扁） |
-| ... | 共 19 维 | |
+| ... | 共 21 维 | |
 
-高召回优化阈值：`VCR > 0.314` 即判为 DVT 疑似，确保 Recall >= 90%。
+当前 Web 与离线统一模型默认使用 `RF unified`，固定概率阈值 `prob ≥ 0.05`。
+当前元信息：`train_accuracy = 94.33%`，`val_accuracy = 94.74%`。
 
 ## 6. Web 诊断平台
 
-基于 Gradio 6.x 的交互式诊断系统，6 个 Tab 覆盖完整分析流程：
+基于 Gradio 6.x 的交互式诊断系统，7 个 Tab 覆盖完整分析流程：
 
 ```bash
 cd web
-python app.py --port 7860
+python app.py
 ```
 
 | Tab | 功能 |
 |-----|------|
-| 视频上传 | 选择 val/train 集案例，预览首帧 + GT 标注 |
+| 仪表盘 | 系统状态、综合评估指标（train+val+test 500/50）、误判案例分析 |
+| 数据输入 | 选择 val/train，或勾选 test(normal/patient)，也支持本地视频上传 |
 | YOLO 检测 | 运行 YOLO 检测，可视化动脉/静脉框 |
 | SAM2 分割 | LoRA r4/r8 + 可选 MFP，逐帧分割结果 Gallery |
-| DVT 诊断 | 19 维特征提取，面积曲线，DVT/正常判断 |
+| DVT 诊断 | 21 维特征提取，面积曲线，DVT/正常判断 |
 | 定量评估 | 逐帧 Dice/mIoU 指标，最佳/最差帧标注 |
-| 模型对比 | 不同变体的指标柱状图 + 雷达图 |
+| 一键分析 | 检测→分割→诊断全流程一键运行并生成报告 |
 
 详见 [web/README.md](web/README.md)。
 

@@ -1,6 +1,6 @@
 """
 模块 1: 数据输入
-- 方式 A: 从 val/train 集中选择案例
+- 方式 A: 从 train / val / test 数据集中选择案例
 - 方式 B: 上传本地超声视频文件 (mp4/avi/mov)
 - 自动抽帧、预览、显示信息
 """
@@ -49,15 +49,37 @@ def _get_dataset_root() -> Path:
     return PROJECT_ROOT / "dataset"
 
 
-def _list_cases(split: str = "val") -> List[str]:
-    root = _get_dataset_root() / split
+def _get_test_root() -> Path:
+    candidates = [
+        PROJECT_ROOT / "test",
+        Path("/data1/ouyangxinglong/EchoDVT/test"),
+    ]
+    for p in candidates:
+        if p.exists():
+            return p
+    return PROJECT_ROOT / "test"
+
+
+def _list_cases(split: str = "val", test_subset: str = "normal") -> List[str]:
+    if split == "test":
+        subset = "patient" if test_subset == "patient" else "normal"
+        root = _get_test_root() / subset
+    else:
+        root = _get_dataset_root() / split
     if not root.exists():
         return []
     return sorted([d.name for d in root.iterdir() if d.is_dir()])
 
 
-def _load_case_info(case_name: str, split: str = "val") -> Dict:
-    case_dir = _get_dataset_root() / split / case_name
+def _load_case_info(case_name: str, split: str = "val", test_subset: str = "normal") -> Dict:
+    if split == "test":
+        subset = "patient" if test_subset == "patient" else "normal"
+        case_dir = _get_test_root() / subset / case_name
+        split_name = f"test/{subset}"
+    else:
+        case_dir = _get_dataset_root() / split / case_name
+        split_name = split
+
     images_dir = case_dir / "images"
     masks_dir = case_dir / "masks"
 
@@ -68,7 +90,7 @@ def _load_case_info(case_name: str, split: str = "val") -> Dict:
 
     return {
         "case_name": case_name,
-        "split": split,
+        "split": split_name,
         "case_dir": str(case_dir),
         "images_dir": str(images_dir),
         "masks_dir": str(masks_dir),
@@ -80,11 +102,11 @@ def _load_case_info(case_name: str, split: str = "val") -> Dict:
     }
 
 
-def _on_case_selected(case_name: str, split: str, state: dict):
+def _on_case_selected(case_name: str, split: str, test_subset: str, state: dict):
     if not case_name:
         return state, None, "请选择一个案例", []
 
-    info = _load_case_info(case_name, split)
+    info = _load_case_info(case_name, split, test_subset)
     if info["num_frames"] == 0:
         return state, None, "案例中没有找到图像帧", []
 
@@ -101,7 +123,7 @@ def _on_case_selected(case_name: str, split: str, state: dict):
 
     # 更新 state
     state["current_case"] = case_name
-    state["split"] = split
+    state["split"] = info["split"]
     state["images_dir"] = info["images_dir"]
     state["masks_dir"] = info["masks_dir"]
     state["frame_files"] = info["frame_files"]
@@ -117,7 +139,7 @@ def _on_case_selected(case_name: str, split: str, state: dict):
 | 属性 | 值 |
 |------|------|
 | **案例名** | `{case_name}` |
-| **数据集** | `{split}` |
+| **数据集** | `{info['split']}` |
 | **总帧数** | {info['num_frames']} |
 | **标注帧数** | {info['num_masks']} |
 | **分辨率** | {w} × {h} |
@@ -253,15 +275,31 @@ def _build_frame_gallery(frame_files: list, max_frames: int = 12) -> list:
     return gallery
 
 
-def _on_split_changed(split: str):
-    cases = _list_cases(split)
+def _on_source_changed(split: str, test_subset: str):
+    if split == "test":
+        cases = _list_cases("test", test_subset)
+        subset_update = gr.update(visible=True, value=test_subset)
+    else:
+        cases = _list_cases(split)
+        subset_update = gr.update(visible=False, value="normal")
+
     if not cases:
-        return gr.update(choices=[], value=None)
-    return gr.update(choices=cases, value=cases[0])
+        return gr.update(choices=[], value=None), subset_update
+    return gr.update(choices=cases, value=cases[0]), subset_update
 
 
 def build_upload_tab(state: gr.State):
     """构建数据输入 Tab"""
+    val_count = len(_list_cases("val"))
+    train_count = len(_list_cases("train"))
+    test_normal_count = len(_list_cases("test", "normal"))
+    test_patient_count = len(_list_cases("test", "patient"))
+    dataset_info = (
+        f"train: {train_count} 例 (全部正常) | "
+        f"val: {val_count} 例 (38 正常 + 38 患者) | "
+        f"test: {test_normal_count + test_patient_count} 例 "
+        f"({test_normal_count} normal + {test_patient_count} patient)"
+    )
 
     with gr.Row(equal_height=False):
         # ========== 左栏：输入区 ==========
@@ -276,10 +314,18 @@ def build_upload_tab(state: gr.State):
                 # ---- 方式 A: 数据集 ----
                 with gr.Tab("从数据集选择", id="dataset"):
                     split_radio = gr.Radio(
-                        choices=["val", "train"],
+                        choices=["train", "val", "test"],
                         value="val",
                         label="数据集",
-                        info="val: 76 例 (38 正常 + 38 患者) | train: 300 例 (全部正常)",
+                        info=dataset_info,
+                    )
+
+                    test_subset_radio = gr.Radio(
+                        choices=["normal", "patient"],
+                        value="normal",
+                        label="test 子集",
+                        visible=False,
+                        info="当数据集选择为 test 时，可切换 normal / patient 入口",
                     )
 
                     initial_cases = _list_cases("val")
@@ -321,7 +367,7 @@ def build_upload_tab(state: gr.State):
 
             # 案例信息
             case_info = gr.Markdown("""
-> 💡 **快速开始**: 从左侧数据集中选择一个案例，或切换到"上传本地视频"标签页上传超声视频文件。
+> 💡 **快速开始**: 先选择 `train / val / test` 数据集入口，再选择案例；也可以切换到「上传本地视频」直接加载本地超声视频。
 """)
 
         # ========== 右栏：预览区 ==========
@@ -339,17 +385,26 @@ def build_upload_tab(state: gr.State):
             )
 
     # ========== 事件绑定 ==========
-    split_radio.change(fn=_on_split_changed, inputs=[split_radio], outputs=[case_dropdown])
+    split_radio.change(
+        fn=_on_source_changed,
+        inputs=[split_radio, test_subset_radio],
+        outputs=[case_dropdown, test_subset_radio],
+    )
+    test_subset_radio.change(
+        fn=_on_source_changed,
+        inputs=[split_radio, test_subset_radio],
+        outputs=[case_dropdown, test_subset_radio],
+    )
 
     load_btn.click(
         fn=_on_case_selected,
-        inputs=[case_dropdown, split_radio, state],
+        inputs=[case_dropdown, split_radio, test_subset_radio, state],
         outputs=[state, preview_image, case_info, frame_gallery],
     )
 
     case_dropdown.change(
         fn=_on_case_selected,
-        inputs=[case_dropdown, split_radio, state],
+        inputs=[case_dropdown, split_radio, test_subset_radio, state],
         outputs=[state, preview_image, case_info, frame_gallery],
     )
 
@@ -361,6 +416,7 @@ def build_upload_tab(state: gr.State):
 
     return {
         "split_radio": split_radio,
+        "test_subset_radio": test_subset_radio,
         "case_dropdown": case_dropdown,
         "preview_image": preview_image,
         "case_info": case_info,

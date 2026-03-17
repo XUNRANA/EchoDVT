@@ -16,7 +16,12 @@ sys.path.insert(0, str(PROJECT_ROOT / "yolo"))
 
 import gradio as gr
 
-from tabs.dashboard import build_dashboard_panel, _refresh_dashboard
+from tabs.dashboard import (
+    build_dashboard_panel,
+    _refresh_dashboard,
+    _quick_load_next_val_case,
+    _quick_run_pipeline_from_dashboard,
+)
 from tabs.upload import build_upload_tab
 from tabs.detection import build_detection_tab
 from tabs.segmentation import build_segmentation_tab
@@ -111,29 +116,17 @@ def build_app():
             "artery_areas": [],
         })
 
-        # ===== 顶部流程导航 =====
-        gr.HTML("""
-        <div class="workflow-nav-header">
-            <div class="workflow-nav-title">🧭 流程导航</div>
-            <div class="workflow-nav-desc">
-                推荐顺序：数据输入 → 目标检测 → 视频分割 → DVT 诊断 → 定量评估（可随时使用「一键分析」快速完成全流程）
-            </div>
-        </div>
-        """)
-        with gr.Row(elem_classes=["workflow-nav-row"]):
-            nav_upload_btn = gr.Button("1️⃣ 📤 数据输入", variant="secondary", size="sm")
-            nav_detection_btn = gr.Button("2️⃣ 🎯 目标检测", variant="secondary", size="sm")
-            nav_seg_btn = gr.Button("3️⃣ 🔬 视频分割", variant="secondary", size="sm")
-            nav_diag_btn = gr.Button("4️⃣ 🩺 DVT 诊断", variant="secondary", size="sm")
-            nav_eval_btn = gr.Button("5️⃣ 📈 定量评估", variant="secondary", size="sm")
-            nav_pipeline_btn = gr.Button("🚀 一键分析", variant="secondary", size="sm")
-            nav_dash_btn = gr.Button("📊 仪表盘", variant="secondary", size="sm")
-
         # ===== 使用 Gradio 原生 Tabs，用 CSS 改造成侧边栏外观 =====
         with gr.Tabs(elem_classes=["sidebar-tabs"]) as tabs:
-            # 主流程顺序（按视频分析的正常经历顺序）
+            with gr.Tab("📊 仪表盘", id="dashboard", elem_classes=["sidebar-tab-item"]):
+                dash_outs = build_dashboard_panel(state)
+
+            # 主流程顺序
             with gr.Tab("📤 数据输入", id="upload", elem_classes=["sidebar-tab-item"]):
                 upload_handles = build_upload_tab(state)
+
+            with gr.Tab("🚀 一键分析", id="pipeline", elem_classes=["sidebar-tab-item"]):
+                pipeline_handles = build_pipeline_tab(state)
 
             with gr.Tab("🎯 目标检测", id="detection", elem_classes=["sidebar-tab-item"]):
                 build_detection_tab(state)
@@ -147,32 +140,55 @@ def build_app():
             with gr.Tab("📈 定量评估", id="evaluation", elem_classes=["sidebar-tab-item"]):
                 build_evaluation_tab(state)
 
-            with gr.Tab("🚀 一键分析", id="pipeline", elem_classes=["sidebar-tab-item"]):
-                pipeline_handles = build_pipeline_tab(state)
-
-            with gr.Tab("📊 仪表盘", id="dashboard", elem_classes=["sidebar-tab-item"]):
-                dash_outs = build_dashboard_panel(
-                    state,
-                    tabs=tabs,
-                    upload_handles=upload_handles,
-                    pipeline_handles=pipeline_handles,
-                )
-
-        # ===== 顶部流程导航按钮事件 =====
-        nav_upload_btn.click(fn=lambda: gr.Tabs(selected="upload"), outputs=[tabs])
-        nav_detection_btn.click(fn=lambda: gr.Tabs(selected="detection"), outputs=[tabs])
-        nav_seg_btn.click(fn=lambda: gr.Tabs(selected="segmentation"), outputs=[tabs])
-        nav_diag_btn.click(fn=lambda: gr.Tabs(selected="diagnosis"), outputs=[tabs])
-        nav_eval_btn.click(fn=lambda: gr.Tabs(selected="evaluation"), outputs=[tabs])
-        nav_pipeline_btn.click(fn=lambda: gr.Tabs(selected="pipeline"), outputs=[tabs])
-        nav_dash_btn.click(fn=lambda: gr.Tabs(selected="dashboard"), outputs=[tabs])
-
         # Dashboard 自动刷新
-        dash_status, dash_dataset, dash_recent, dash_errors, dash_chart, dash_workflow, dash_refresh = dash_outs
+        (
+            dash_status,
+            dash_dataset,
+            dash_errors,
+            dash_chart,
+            dash_workflow,
+            dash_refresh,
+            dash_quick_load_btn,
+            dash_quick_analyze_btn,
+            dash_quick_status,
+        ) = dash_outs
         app.load(
             fn=_refresh_dashboard,
             inputs=[state],
-            outputs=[dash_status, dash_dataset, dash_recent, dash_errors, dash_chart, dash_workflow],
+            outputs=[dash_status, dash_dataset, dash_errors, dash_chart, dash_workflow],
+        )
+
+        dash_quick_load_btn.click(
+            fn=_quick_load_next_val_case,
+            inputs=[state],
+            outputs=[
+                state,
+                upload_handles["split_radio"],
+                upload_handles["case_dropdown"],
+                upload_handles["preview_image"],
+                upload_handles["case_info"],
+                upload_handles["frame_gallery"],
+                dash_quick_status,
+                dash_workflow,
+                tabs,
+                upload_handles["test_subset_radio"],
+            ],
+        )
+
+        dash_quick_analyze_btn.click(
+            fn=_quick_run_pipeline_from_dashboard,
+            inputs=[state],
+            outputs=[
+                state,
+                pipeline_handles["det_preview"],
+                pipeline_handles["seg_gallery"],
+                pipeline_handles["area_plot"],
+                pipeline_handles["report_html"],
+                pipeline_handles["diagnosis_summary"],
+                dash_quick_status,
+                dash_workflow,
+                tabs,
+            ],
         )
 
     return app, custom_css, theme, clock_head
@@ -180,15 +196,19 @@ def build_app():
 
 def main():
     parser = argparse.ArgumentParser(description="EchoDVT Dashboard")
-    parser.add_argument("--port", type=int, default=8888)
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="指定端口（默认不固定端口，由 Gradio 自动选择可用端口）",
+    )
     parser.add_argument("--share", action="store_true", default=False)
     parser.add_argument("--server-name", type=str, default="0.0.0.0")
     args = parser.parse_args()
 
     app, css, theme, head = build_app()
-    app.launch(
+    launch_kwargs = dict(
         server_name=args.server_name,
-        server_port=args.port,
         share=args.share,
         show_error=True,
         css=css,
@@ -201,6 +221,10 @@ def main():
             "/data1/ouyangxinglong",
         ],
     )
+    if args.port is not None:
+        launch_kwargs["server_port"] = args.port
+
+    app.launch(**launch_kwargs)
 
 
 if __name__ == "__main__":

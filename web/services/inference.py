@@ -20,6 +20,7 @@ SAM2_DIR = PROJECT_ROOT / "sam2"
 # ── 默认路径 ──
 DEFAULT_SAM2_CONFIG = "configs/sam2/sam2_hiera_l.yaml"
 DEFAULT_SAM2_CHECKPOINT = SAM2_DIR / "checkpoints" / "sam2_hiera_large.pt"
+DEFAULT_SAM2_VARIANT = "LoRA r8"
 DEFAULT_LORA_WEIGHTS = {
     "LoRA r8": SAM2_DIR / "checkpoints" / "lora_runs"
                / "lora_r8_lr0.0003_e25_20260314_153210" / "lora_best.pt",
@@ -74,7 +75,7 @@ class InferenceService:
         )
         return self._detector
 
-    def get_segmenter(self, variant: str = "LoRA r8"):
+    def get_segmenter(self, variant: str = DEFAULT_SAM2_VARIANT):
         """Return cached LoRASAM2VideoSegmenter for the given variant."""
         if variant in self._segmenters:
             return self._segmenters[variant]
@@ -128,7 +129,7 @@ class InferenceService:
         detections: dict,
         num_frames: int,
         use_mfp: bool = False,
-        variant: str = "LoRA r8",
+        variant: str = DEFAULT_SAM2_VARIANT,
     ) -> Dict[int, Dict[str, np.ndarray]]:
         """Run SAM2 LoRA video segmentation.
 
@@ -178,41 +179,28 @@ class InferenceService:
     def run_diagnosis(self, masks_list: list) -> dict:
         """Extract full DVT features from a list of semantic mask arrays.
 
+        Uses the unified RF model (same as classify_dvt.py offline evaluation).
+
         Args:
             masks_list: List of 2D numpy arrays (semantic masks, 0=bg, 1=artery, 2=vein),
                         one per frame in temporal order.
 
         Returns:
             Dict with keys:
-                "features": dict of feature_name -> value (19 features),
-                "is_dvt": bool (based on optimized threshold),
+                "features": dict of feature_name -> value,
+                "is_dvt": bool,
                 "confidence": float,
                 "diagnosis": str,
-                plus all individual feature values for display.
+                "probability": float (RF probability),
+                "threshold": float,
+                "vcr": float,
+                "model": str,
         """
         _ensure_paths()
         sys.path.insert(0, str(PROJECT_ROOT))
-        from classify_dvt import extract_features
+        from classify_dvt import extract_features, predict_dvt
 
         features = extract_features(masks_list)
+        result = predict_dvt(features)
 
-        # Primary classification: use VCR with optimized threshold (0.314 from classify_dvt)
-        vcr = features.get("vcr", 0)
-        threshold = 0.314
-        is_dvt = vcr > threshold
-        distance = abs(vcr - threshold)
-        confidence = min(1.0, distance / 0.3)
-
-        if is_dvt:
-            diagnosis = "DVT 疑似（静脉拒绝塌陷）"
-        else:
-            diagnosis = "正常（静脉正常塌陷）"
-
-        return {
-            "features": features,
-            "is_dvt": is_dvt,
-            "confidence": confidence,
-            "diagnosis": diagnosis,
-            "threshold": threshold,
-            "vcr": vcr,
-        }
+        return result
