@@ -276,12 +276,12 @@ def build_segmentation_tab(state: gr.State):
     with gr.Row(equal_height=False):
         with gr.Column(scale=2):
             gr.HTML("""
-            <div style="padding:16px 20px; background:linear-gradient(135deg, #1a2f4f, #1e293b);
-                        border-radius:12px; border:1px solid #334155; margin-bottom:8px;">
-                <h3 style="margin:0 0 4px 0; color:#e2e8f0; font-size:16px;">
+            <div style="padding:16px 20px; background:linear-gradient(135deg, #f0f9ff, #eff6ff);
+                        border-radius:12px; border:1px solid #e2e8f0; margin-bottom:8px;">
+                <h3 style="margin:0 0 4px 0; color:#1e293b; font-size:16px;">
                     🔬 SAM2 视频分割
                 </h3>
-                <p style="margin:0; color:#94a3b8; font-size:13px;">
+                <p style="margin:0; color:#64748b; font-size:13px;">
                     使用首帧 YOLO 检测框作为 prompt，通过 SAM2 记忆传播机制完成全视频分割
                 </p>
             </div>

@@ -40,6 +40,8 @@ def _run_diagnosis(state: dict, threshold: float):
     if pred_masks:
         try:
             from web.services import InferenceService
+            import signal
+
             # 收集所有帧的 semantic mask（按帧序排列）
             num_frames = len(state.get("frame_files", []))
             masks_list = []
@@ -48,16 +50,26 @@ def _run_diagnosis(state: dict, threshold: float):
                 if entry is not None:
                     masks_list.append(entry["semantic"])
                 else:
-                    # 用零 mask 填充缺失帧
                     if masks_list:
                         masks_list.append(np.zeros_like(masks_list[-1]))
                     else:
                         masks_list.append(np.zeros((256, 256), dtype=np.uint8))
 
-            ml_result = InferenceService.get().run_diagnosis(masks_list)
-            full_features = ml_result.get("features")
-        except Exception:
-            pass
+            # 设置 30 秒超时，防止模型加载卡死
+            def _timeout_handler(signum, frame):
+                raise TimeoutError("ML diagnosis timed out")
+
+            old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+            signal.alarm(30)
+            try:
+                ml_result = InferenceService.get().run_diagnosis(masks_list)
+                full_features = ml_result.get("features")
+            finally:
+                signal.alarm(0)
+                signal.signal(signal.SIGALRM, old_handler)
+        except (TimeoutError, Exception) as e:
+            print(f"[Diagnosis] ML inference skipped: {e}")
+            ml_result = None
 
     # 兜底：简单 VCR 阈值诊断
     result = compute_dvt_diagnosis(vein_areas, threshold=threshold)
@@ -173,10 +185,10 @@ def _diagnosis_summary_html(result: dict) -> str:
             <div style="font-size:24px; font-weight:800; color:#ef4444; margin-bottom:6px;">
                 DVT Suspected
             </div>
-            <div style="font-size:14px; color:#fca5a5; margin-bottom:4px;">
+            <div style="font-size:14px; color:#b91c1c; margin-bottom:4px;">
                 VCR = {result.get('area_ratio', 0):.3f} &nbsp;|&nbsp; Confidence {result['confidence']:.0%}
             </div>
-            <div style="font-size:12px; color:#94a3b8; margin-top:8px; line-height:1.6;">
+            <div style="font-size:12px; color:#64748b; margin-top:8px; line-height:1.6;">
                 Vein resists compression during ultrasound examination<br>
                 <b>Further clinical examination recommended</b>
             </div>
@@ -189,10 +201,10 @@ def _diagnosis_summary_html(result: dict) -> str:
             <div style="font-size:24px; font-weight:800; color:#10b981; margin-bottom:6px;">
                 Normal
             </div>
-            <div style="font-size:14px; color:#6ee7b7; margin-bottom:4px;">
+            <div style="font-size:14px; color:#047857; margin-bottom:4px;">
                 VCR = {result.get('area_ratio', 0):.3f} &nbsp;|&nbsp; Confidence {result['confidence']:.0%}
             </div>
-            <div style="font-size:12px; color:#94a3b8; margin-top:8px; line-height:1.6;">
+            <div style="font-size:12px; color:#64748b; margin-top:8px; line-height:1.6;">
                 Vein collapses normally, area reduction {result.get('area_change_percent', 0):.0f}%<br>
                 No thrombosis signs detected
             </div>
@@ -205,12 +217,12 @@ def build_diagnosis_tab(state: gr.State):
     with gr.Row(equal_height=False):
         with gr.Column(scale=2):
             gr.HTML("""
-            <div style="padding:16px 20px; background:linear-gradient(135deg, #1f2937, #1e293b);
-                        border-radius:12px; border:1px solid #334155; margin-bottom:8px;">
-                <h3 style="margin:0 0 4px 0; color:#e2e8f0; font-size:16px;">
+            <div style="padding:16px 20px; background:linear-gradient(135deg, #f0f9ff, #eff6ff);
+                        border-radius:12px; border:1px solid #e2e8f0; margin-bottom:8px;">
+                <h3 style="margin:0 0 4px 0; color:#1e293b; font-size:16px;">
                     🩺 DVT Intelligent Diagnosis
                 </h3>
-                <p style="margin:0; color:#94a3b8; font-size:13px;">
+                <p style="margin:0; color:#64748b; font-size:13px;">
                     Automatic DVT assessment based on 19-dimensional temporal features from vein area changes
                 </p>
             </div>
@@ -225,7 +237,7 @@ def build_diagnosis_tab(state: gr.State):
             diagnose_btn = gr.Button("🩺 Run Diagnosis", variant="primary", size="lg")
 
             diagnosis_html = gr.HTML("""
-            <div style="text-align:center; padding:24px; color:#64748b; border:1px dashed #334155; border-radius:12px;">
+            <div style="text-align:center; padding:24px; color:#64748b; border:1px dashed #cbd5e1; border-radius:12px;">
                 Complete segmentation first, then click「Run Diagnosis」
             </div>
             """)

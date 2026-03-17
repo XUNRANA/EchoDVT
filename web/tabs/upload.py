@@ -25,11 +25,11 @@ from web.utils.visualization import bgr_to_rgb
 
 _TAB_HEADER = """
 <div style="padding:16px 20px; background:linear-gradient(135deg, {bg1}, {bg2});
-            border-radius:12px; border:1px solid #334155; margin-bottom:8px;">
-    <h3 style="margin:0 0 4px 0; color:#e2e8f0; font-size:16px;">
+            border-radius:12px; border:1px solid #e2e8f0; margin-bottom:8px;">
+    <h3 style="margin:0 0 4px 0; color:#1e293b; font-size:16px;">
         {icon} {title}
     </h3>
-    <p style="margin:0; color:#94a3b8; font-size:13px;">
+    <p style="margin:0; color:#64748b; font-size:13px;">
         {desc}
     </p>
 </div>
@@ -267,7 +267,7 @@ def build_upload_tab(state: gr.State):
         # ========== 左栏：输入区 ==========
         with gr.Column(scale=2):
             gr.HTML(_TAB_HEADER.format(
-                bg1="#1e3a5f", bg2="#1e293b",
+                bg1="#f0f9ff", bg2="#eff6ff",
                 icon="📤", title="数据输入",
                 desc="从数据集选择案例，或上传本地超声视频",
             ))
@@ -310,9 +310,9 @@ def build_upload_tab(state: gr.State):
                     )
 
                     gr.HTML("""
-                    <div style="padding:12px; background:rgba(15,23,42,0.6); border-radius:8px;
-                                border:1px solid #334155; margin-top:4px;">
-                        <p style="color:#94a3b8; font-size:12px; margin:0; line-height:1.7;">
+                    <div style="padding:12px; background:rgba(241,245,249,0.8); border-radius:8px;
+                                border:1px solid #e2e8f0; margin-top:4px;">
+                        <p style="color:#64748b; font-size:12px; margin:0; line-height:1.7;">
                             📁 支持格式：MP4 / AVI / MOV / MKV（最大 2GB）<br>
                             ⚙️ 系统将自动逐帧提取并加载到分析流程
                         </p>

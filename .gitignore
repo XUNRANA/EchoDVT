@@ -1,4 +1,5 @@
 dataset/
+test/
 results/
 yolo/runs/
 yolo/predictions/
