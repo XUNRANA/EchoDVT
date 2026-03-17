@@ -26,7 +26,7 @@ def _show_evaluation(state: dict):
     metrics_list = state.get("frame_metrics", [])
 
     if not metrics_list:
-        return "⚠️ Please complete segmentation first (requires GT-annotated frames for evaluation)", None, None
+        return "⚠️ 请先完成分割（需要有 GT 标注的帧才能评估）", None, None
 
     # Case 汇总
     summary = summarize_case_metrics(metrics_list)
@@ -41,24 +41,24 @@ def _show_evaluation(state: dict):
     # 左图：Dice 变化
     ax1 = axes[0]
     ax1.plot(frame_indices, [m["artery_dice"] for m in metrics_list],
-             "o-", color="#ef4444", linewidth=2, markersize=5, label="Artery Dice")
+             "o-", color="#ef4444", linewidth=2, markersize=5, label="动脉 Dice")
     ax1.plot(frame_indices, [m["vein_dice"] for m in metrics_list],
-             "s-", color="#22c55e", linewidth=2, markersize=5, label="Vein Dice")
+             "s-", color="#22c55e", linewidth=2, markersize=5, label="静脉 Dice")
     ax1.plot(frame_indices, [m["mean_dice"] for m in metrics_list],
-             "^-", color="#3b82f6", linewidth=2, markersize=5, label="Mean Dice")
-    style_axis(ax1, title="Per-Frame Dice Score", xlabel="Frame Index", ylabel="Dice")
+             "^-", color="#3b82f6", linewidth=2, markersize=5, label="平均 Dice")
+    style_axis(ax1, title="逐帧 Dice 分数", xlabel="帧序号", ylabel="Dice")
     ax1.legend(fontsize=10)
     ax1.set_ylim(0, 1.05)
 
     # 右图：mIoU 变化
     ax2 = axes[1]
     ax2.plot(frame_indices, [m["artery_iou"] for m in metrics_list],
-             "o-", color="#ef4444", linewidth=2, markersize=5, label="Artery IoU")
+             "o-", color="#ef4444", linewidth=2, markersize=5, label="动脉 IoU")
     ax2.plot(frame_indices, [m["vein_iou"] for m in metrics_list],
-             "s-", color="#22c55e", linewidth=2, markersize=5, label="Vein IoU")
+             "s-", color="#22c55e", linewidth=2, markersize=5, label="静脉 IoU")
     ax2.plot(frame_indices, [m["miou"] for m in metrics_list],
              "^-", color="#3b82f6", linewidth=2, markersize=5, label="mIoU")
-    style_axis(ax2, title="Per-Frame mIoU", xlabel="Frame Index", ylabel="IoU")
+    style_axis(ax2, title="逐帧 mIoU", xlabel="帧序号", ylabel="IoU")
     ax2.legend(fontsize=10)
     ax2.set_ylim(0, 1.05)
 
@@ -68,7 +68,7 @@ def _show_evaluation(state: dict):
     report = _format_eval_report(summary, metrics_list)
 
     # 逐帧数据表格 (Markdown 格式)
-    table_lines = ["| Frame | A Dice | A IoU | V Dice | V IoU | Mean Dice | mIoU |"]
+    table_lines = ["| 帧 | 动脉 Dice | 动脉 IoU | 静脉 Dice | 静脉 IoU | 平均 Dice | mIoU |"]
     table_lines.append("|:---:|:---:|:---:|:---:|:---:|:---:|:---:|")
     for m in metrics_list:
         table_lines.append(
@@ -83,11 +83,11 @@ def _show_evaluation(state: dict):
 
 def _format_eval_report(summary: dict, metrics_list: list) -> str:
     """格式化评估报告"""
-    lines = ["### 📊 Segmentation Quality Report\n"]
-    lines.append(f"**Evaluated Frames**: {summary.get('n_frames', 0)}\n")
+    lines = ["### 📊 分割质量报告\n"]
+    lines.append(f"**已评估帧数**: {summary.get('n_frames', 0)}\n")
 
-    lines.append("| Metric | Artery | Vein | Mean |")
-    lines.append("|--------|:------:|:----:|:----:|")
+    lines.append("| 指标 | 动脉 | 静脉 | 平均 |")
+    lines.append("|------|:----:|:----:|:----:|")
     lines.append(f"| **Dice** | {summary['artery_dice']:.4f} | {summary['vein_dice']:.4f} | {summary['mean_dice']:.4f} |")
     lines.append(f"| **IoU** | {summary['artery_iou']:.4f} | {summary['vein_iou']:.4f} | {summary['miou']:.4f} |")
 
@@ -95,8 +95,8 @@ def _format_eval_report(summary: dict, metrics_list: list) -> str:
     if metrics_list:
         worst = min(metrics_list, key=lambda m: m["mean_dice"])
         best = max(metrics_list, key=lambda m: m["mean_dice"])
-        lines.append(f"\n- 🏆 **Best Frame**: Frame {best['frame_idx']} (Dice = {best['mean_dice']:.4f})")
-        lines.append(f"- ⚠️ **Worst Frame**: Frame {worst['frame_idx']} (Dice = {worst['mean_dice']:.4f})")
+        lines.append(f"\n- 🏆 **最佳帧**: 第 {best['frame_idx']} 帧 (Dice = {best['mean_dice']:.4f})")
+        lines.append(f"- ⚠️ **最差帧**: 第 {worst['frame_idx']} 帧 (Dice = {worst['mean_dice']:.4f})")
 
     return "\n".join(lines)
 
@@ -110,25 +110,25 @@ def build_evaluation_tab(state: gr.State):
             <div style="padding:16px 20px; background:linear-gradient(135deg, #f0f9ff, #eff6ff);
                         border-radius:12px; border:1px solid #e2e8f0; margin-bottom:8px;">
                 <h3 style="margin:0 0 4px 0; color:#1e293b; font-size:16px;">
-                    📊 Quantitative Evaluation
+                    📊 定量评估
                 </h3>
                 <p style="margin:0; color:#64748b; font-size:13px;">
-                    Per-frame Dice / mIoU metrics and case-level summary. Only evaluates frames with GT annotations.
+                    逐帧 Dice / mIoU 指标以及案例级汇总。仅评估有 GT 标注的帧。
                 </p>
             </div>
             """)
 
-            eval_btn = gr.Button("📊 Generate Evaluation Report", variant="primary", size="lg")
+            eval_btn = gr.Button("📊 生成评估报告", variant="primary", size="lg")
 
             eval_report = gr.Markdown("""
-> 💡 **Note**: Complete segmentation first. This tab evaluates segmentation quality against Ground Truth annotations.
+> 💡 **说明**: 请先完成分割。此模块将分割结果与 GT 标注进行对比评估。
 """)
 
-            gr.Markdown("### Per-Frame Metrics")
-            eval_table = gr.Markdown("*Evaluation data will appear here after running the report.*")
+            gr.Markdown("### 逐帧指标")
+            eval_table = gr.Markdown("*运行评估后将在此展示逐帧指标数据。*")
 
         with gr.Column(scale=3):
-            eval_plot = gr.Plot(label="Per-Frame Metric Curves")
+            eval_plot = gr.Plot(label="逐帧指标曲线")
 
     eval_btn.click(
         fn=_show_evaluation,

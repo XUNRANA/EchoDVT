@@ -123,7 +123,7 @@ def _run_sam2_segmentation(
         if should_show:
             vis = overlay_masks(img, semantic_mask, alpha=0.45)
             vis_rgb = bgr_to_rgb(vis)
-            gallery_images.append((vis_rgb, f"Frame {i}"))
+            gallery_images.append((vis_rgb, f"第 {i} 帧"))
 
     # 更新 state
     state["pred_masks"] = pred_masks_by_idx
@@ -262,10 +262,10 @@ def _format_segmentation_report(metrics_list, total_frames, variant):
         lines.append(f"\n### 📐 平均指标\n")
         lines.append("| 指标 | 值 |")
         lines.append("|------|------|")
-        lines.append(f"| **Mean Dice** | {avg_dice:.4f} |")
+        lines.append(f"| **平均 Dice** | {avg_dice:.4f} |")
         lines.append(f"| **mIoU** | {avg_miou:.4f} |")
-        lines.append(f"| **Artery Dice** | {avg_a_dice:.4f} |")
-        lines.append(f"| **Vein Dice** | {avg_v_dice:.4f} |")
+        lines.append(f"| **动脉 Dice** | {avg_a_dice:.4f} |")
+        lines.append(f"| **静脉 Dice** | {avg_v_dice:.4f} |")
 
     return "\n".join(lines)
 
@@ -312,7 +312,7 @@ def build_segmentation_tab(state: gr.State):
 
             seg_report = gr.Markdown("""
 > 💡 **操作指引**: 选择模型变体后点击「开始分割」。
-> 分割完成后可在右侧 Gallery 中查看各帧分割结果。
+> 分割完成后可在右侧图库中查看各帧分割结果。
 """)
 
         with gr.Column(scale=3):

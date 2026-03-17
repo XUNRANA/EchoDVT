@@ -133,7 +133,7 @@ def _run_full_pipeline(
         should_show = (i % max(1, num_frames // 16) == 0) or (i in gt_frame_map) or (i == 0)
         if should_show and len(gallery_images) < 24:
             vis = overlay_masks(img, semantic_mask, alpha=0.45)
-            gallery_images.append((bgr_to_rgb(vis), f"Frame {i}"))
+            gallery_images.append((bgr_to_rgb(vis), f"第 {i} 帧"))
 
     state["pred_masks"] = pred_masks_by_idx
     state["frame_metrics"] = all_frame_metrics
@@ -177,6 +177,21 @@ def _run_full_pipeline(
 
     # 诊断摘要
     summary_html = _build_summary_card(simple_result)
+
+    # 写入 Dashboard 最近分析记录
+    from web.tabs.dashboard import save_analysis_record
+    mean_dice = (
+        float(np.mean([m["mean_dice"] for m in all_frame_metrics]))
+        if all_frame_metrics
+        else None
+    )
+    save_analysis_record({
+        "case_name": state.get("current_case", "Unknown"),
+        "model": model_variant + (" + MFP" if use_mfp else ""),
+        "is_dvt": bool(simple_result.get("is_dvt")),
+        "mean_dice": mean_dice,
+        "vcr": round(simple_result.get("area_ratio", 0), 4),
+    })
 
     progress(1.0, desc="分析完成")
 
@@ -238,15 +253,15 @@ def _build_area_chart(vein_areas, artery_areas):
     ax1 = axes[0]
     ax1.fill_between(frames, artery_areas, alpha=0.25, color="#ef4444")
     ax1.fill_between(frames, vein_areas, alpha=0.25, color="#22c55e")
-    ax1.plot(frames, artery_areas, color="#ef4444", linewidth=2, label="Artery")
-    ax1.plot(frames, vein_areas, color="#22c55e", linewidth=2, label="Vein")
+    ax1.plot(frames, artery_areas, color="#ef4444", linewidth=2, label="动脉")
+    ax1.plot(frames, vein_areas, color="#22c55e", linewidth=2, label="静脉")
     if vein_areas:
         min_idx = int(np.argmin(vein_areas))
         ax1.axvline(x=min_idx, color="#f59e0b", linestyle="--", alpha=0.6)
-        ax1.annotate(f"Min Vein: {vein_areas[min_idx]}", (min_idx, vein_areas[min_idx]),
+        ax1.annotate(f"静脉最小: {vein_areas[min_idx]}", (min_idx, vein_areas[min_idx]),
                      textcoords="offset points", xytext=(10, 10), fontsize=9, color="#f59e0b",
                      arrowprops=dict(arrowstyle="->", color="#f59e0b"))
-    style_axis(ax1, title="Artery / Vein Area Over Frames", ylabel="Area (px)")
+    style_axis(ax1, title="动脉 / 静脉面积变化", ylabel="面积 (px)")
     ax1.legend(fontsize=10)
 
     # 下图：V/A 比
@@ -255,8 +270,8 @@ def _build_area_chart(vein_areas, artery_areas):
         ratios = [v / a if a > 0 else 0 for v, a in zip(vein_areas, artery_areas)]
         ax2.plot(frames, ratios, color="#06b6d4", linewidth=2)
         ax2.fill_between(frames, ratios, alpha=0.15, color="#06b6d4")
-    style_axis(ax2, title="Vein-to-Artery Area Ratio",
-              xlabel="Frame Index", ylabel="V/A Ratio")
+    style_axis(ax2, title="静脉/动脉面积比",
+              xlabel="帧序号", ylabel="V/A 比值")
 
     plt.tight_layout(pad=2.0)
     return fig
@@ -310,9 +325,11 @@ def _build_full_report_html(state, detections, result, features,
     from_video = state.get("from_video", False)
 
     # ---- 检测信息 ----
+    cls_cn = {"artery": "动脉", "vein": "静脉"}
     det_rows = ""
     for cls in ("artery", "vein"):
         det = detections.get(cls)
+        cn = cls_cn[cls]
         if det:
             box = det["box"]
             conf = det.get("conf", 0)
@@ -322,9 +339,9 @@ def _build_full_report_html(state, detections, result, features,
             if det.get("fixed"): tags.append("修正")
             if not tags: tags.append("检测")
             status = " / ".join(tags)
-            det_rows += f"<tr><td>{cls}</td><td>{conf:.3f}</td><td>({box[0]:.0f},{box[1]:.0f},{box[2]:.0f},{box[3]:.0f})</td><td>{status}</td></tr>"
+            det_rows += f"<tr><td>{cn}</td><td>{conf:.3f}</td><td>({box[0]:.0f},{box[1]:.0f},{box[2]:.0f},{box[3]:.0f})</td><td>{status}</td></tr>"
         else:
-            det_rows += f"<tr><td>{cls}</td><td>—</td><td>—</td><td>未检测</td></tr>"
+            det_rows += f"<tr><td>{cn}</td><td>—</td><td>—</td><td>未检测</td></tr>"
 
     # ---- 特征表 ----
     feat_rows = ""
@@ -363,7 +380,7 @@ def _build_full_report_html(state, detections, result, features,
         avg_v = np.mean([m["vein_dice"] for m in frame_metrics])
         seg_summary = f"""
         <table class="report-table">
-          <tr><th>指标</th><th>Artery</th><th>Vein</th><th>Mean</th></tr>
+          <tr><th>指标</th><th>动脉</th><th>静脉</th><th>平均</th></tr>
           <tr><td>Dice</td><td>{avg_a:.4f}</td><td>{avg_v:.4f}</td><td>{avg_dice:.4f}</td></tr>
           <tr><td>mIoU</td><td>{np.mean([m['artery_iou'] for m in frame_metrics]):.4f}</td>
               <td>{np.mean([m['vein_iou'] for m in frame_metrics]):.4f}</td><td>{avg_miou:.4f}</td></tr>
@@ -520,3 +537,14 @@ def build_pipeline_tab(state: gr.State):
         inputs=[state, model_variant, use_mfp, conf_slider],
         outputs=[state, det_preview, seg_gallery, area_plot, report_html, diagnosis_summary],
     )
+
+    return {
+        "model_variant": model_variant,
+        "use_mfp": use_mfp,
+        "conf_slider": conf_slider,
+        "det_preview": det_preview,
+        "seg_gallery": seg_gallery,
+        "area_plot": area_plot,
+        "report_html": report_html,
+        "diagnosis_summary": diagnosis_summary,
+    }

@@ -23,7 +23,7 @@ import matplotlib.pyplot as plt
 def _run_comparison(state: dict, variant_a: str, variant_b: str):
     """运行两个模型变体的对比"""
     if not state.get("frame_files"):
-        return "⚠️ Please load a case and complete segmentation first", None, None
+        return "⚠️ 请先加载案例并完成分割", None, None
 
     # 由于完整对比需要两次 SAM2 推理（很耗时），这里提供一个结构化的对比框架
     # 真实场景中会缓存每个变体的结果
@@ -31,7 +31,7 @@ def _run_comparison(state: dict, variant_a: str, variant_b: str):
     # 如果当前已有分割结果，展示其指标
     metrics_list = state.get("frame_metrics", [])
     if not metrics_list:
-        return "⚠️ Please run segmentation at least once in the「SAM2 Segmentation」tab first", None, None
+        return "⚠️ 请先在「视频分割」标签页中至少运行一次分割", None, None
 
     setup_matplotlib()
 
@@ -54,7 +54,7 @@ def _run_comparison(state: dict, variant_a: str, variant_b: str):
 
     # 左图：Dice 对比柱状图
     ax1 = axes[0]
-    categories = ["Artery\nDice", "Vein\nDice", "Mean\nDice"]
+    categories = ["动脉\nDice", "静脉\nDice", "平均\nDice"]
     x = np.arange(len(categories))
     width = 0.35
 
@@ -79,7 +79,7 @@ def _run_comparison(state: dict, variant_a: str, variant_b: str):
 
     ax1.set_xticks(x)
     ax1.set_xticklabels(categories, fontsize=11, color="#94a3b8")
-    style_axis(ax1, title="Dice Score Comparison", ylabel="Dice")
+    style_axis(ax1, title="Dice 分数对比", ylabel="Dice")
     ax1.set_ylim(0, 1.15)
     ax1.legend(fontsize=10)
     ax1.grid(True, alpha=0.15, axis="y", color="#475569")
@@ -103,7 +103,7 @@ def _run_comparison(state: dict, variant_a: str, variant_b: str):
     ax2.set_xticks(angles[:-1])
     ax2.set_xticklabels(radar_labels, fontsize=10, color="#94a3b8")
     ax2.set_ylim(0, 1.0)
-    ax2.set_title("Multi-Metric Radar Chart", fontsize=14, fontweight="bold",
+    ax2.set_title("多指标雷达图", fontsize=14, fontweight="bold",
                   color="#1e293b", pad=20)
     ax2.legend(fontsize=9, loc="lower right")
     ax2.tick_params(colors="#64748b")
@@ -114,18 +114,18 @@ def _run_comparison(state: dict, variant_a: str, variant_b: str):
 
     # 对比报告
     report = f"""
-### ⚖️ Model Comparison Report
+### ⚖️ 模型对比报告
 
-| Metric | {variant_a} | {variant_b} | Delta |
-|--------|:------:|:------:|:------:|
-| **Artery Dice** | {current_a_dice:.4f} | {ref_a_dice:.4f} | {current_a_dice - ref_a_dice:+.4f} |
-| **Vein Dice** | {current_v_dice:.4f} | {ref_v_dice:.4f} | {current_v_dice - ref_v_dice:+.4f} |
-| **Mean Dice** | {current_mean_dice:.4f} | {ref_mean_dice:.4f} | {current_mean_dice - ref_mean_dice:+.4f} |
-| **Artery IoU** | {current_a_iou:.4f} | — | — |
-| **Vein IoU** | {current_v_iou:.4f} | — | — |
+| 指标 | {variant_a} | {variant_b} | 差异 |
+|------|:------:|:------:|:------:|
+| **动脉 Dice** | {current_a_dice:.4f} | {ref_a_dice:.4f} | {current_a_dice - ref_a_dice:+.4f} |
+| **静脉 Dice** | {current_v_dice:.4f} | {ref_v_dice:.4f} | {current_v_dice - ref_v_dice:+.4f} |
+| **平均 Dice** | {current_mean_dice:.4f} | {ref_mean_dice:.4f} | {current_mean_dice - ref_mean_dice:+.4f} |
+| **动脉 IoU** | {current_a_iou:.4f} | — | — |
+| **静脉 IoU** | {current_v_iou:.4f} | — | — |
 | **mIoU** | {current_miou:.4f} | — | — |
 
-> **Note**: {variant_b} data is simulated. For full comparison, run segmentation with different model variants in the「SAM2 Segmentation」tab.
+> **注意**: {variant_b} 数据为模拟数据。完整对比请在「视频分割」标签页中使用不同模型变体分别运行分割。
 """
 
     return report, fig, None
@@ -140,10 +140,10 @@ def build_comparison_tab(state: gr.State):
             <div style="padding:16px 20px; background:linear-gradient(135deg, #f0f9ff, #eff6ff);
                         border-radius:12px; border:1px solid #e2e8f0; margin-bottom:8px;">
                 <h3 style="margin:0 0 4px 0; color:#1e293b; font-size:16px;">
-                    ⚖️ Model Comparison
+                    ⚖️ 模型对比
                 </h3>
                 <p style="margin:0; color:#64748b; font-size:13px;">
-                    Side-by-side comparison of different SAM2 model variants (Baseline / LoRA / AM+SM+AV)
+                    不同 SAM2 模型变体的分割效果并排对比（Baseline / LoRA / AM+SM+AV）
                 </p>
             </div>
             """)
@@ -175,18 +175,18 @@ def build_comparison_tab(state: gr.State):
                 label="📌 Model B",
             )
 
-            compare_btn = gr.Button("⚖️ Compare", variant="primary", size="lg")
+            compare_btn = gr.Button("⚖️ 开始对比", variant="primary", size="lg")
 
             compare_report = gr.Markdown("""
-> 💡 **Tip**: Select two model variants and click「Compare」to see Dice/IoU comparison charts and radar plots.
-> Ideal for ablation study presentations.
+> 💡 **提示**: 选择两个模型变体，点击「开始对比」查看 Dice/IoU 对比图和雷达图。
+> 适合消融实验展示。
 """)
 
         with gr.Column(scale=3):
-            compare_plot = gr.Plot(label="Comparison Charts")
+            compare_plot = gr.Plot(label="对比图表")
 
             compare_gallery = gr.Gallery(
-                label="Side-by-Side Segmentation Results",
+                label="分割结果并排对比",
                 columns=2,
                 rows=2,
                 height=400,

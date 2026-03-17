@@ -92,20 +92,20 @@ def _run_diagnosis(state: dict, threshold: float):
 
     # 上图：面积变化
     ax1 = axes[0]
-    ax1.fill_between(frames, artery_areas, alpha=0.3, color="#ef4444", label="Artery Area")
-    ax1.fill_between(frames, vein_areas, alpha=0.3, color="#22c55e", label="Vein Area")
+    ax1.fill_between(frames, artery_areas, alpha=0.3, color="#ef4444", label="动脉面积")
+    ax1.fill_between(frames, vein_areas, alpha=0.3, color="#22c55e", label="静脉面积")
     ax1.plot(frames, artery_areas, color="#ef4444", linewidth=2)
     ax1.plot(frames, vein_areas, color="#22c55e", linewidth=2)
-    style_axis(ax1, title="Artery / Vein Area Over Frames",
-               xlabel="Frame Index", ylabel="Area (px)")
+    style_axis(ax1, title="动脉 / 静脉面积变化",
+               xlabel="帧序号", ylabel="面积 (px)")
     ax1.legend(fontsize=11, loc="upper right")
 
     # 标注最小面积帧
     if vein_areas:
         min_idx = int(np.argmin(vein_areas))
         ax1.axvline(x=min_idx, color="#f59e0b", linestyle="--", alpha=0.7,
-                    label=f"Min Vein (Frame {min_idx})")
-        ax1.annotate(f"Min: {vein_areas[min_idx]}", (min_idx, vein_areas[min_idx]),
+                    label=f"静脉最小值 (第 {min_idx} 帧)")
+        ax1.annotate(f"最小: {vein_areas[min_idx]}", (min_idx, vein_areas[min_idx]),
                      textcoords="offset points", xytext=(10, 10),
                      fontsize=10, color="#f59e0b",
                      arrowprops=dict(arrowstyle="->", color="#f59e0b"))
@@ -118,8 +118,8 @@ def _run_diagnosis(state: dict, threshold: float):
             ratios.append(v / a if a > 0 else 0)
         ax2.plot(frames, ratios, color="#06b6d4", linewidth=2)
         ax2.fill_between(frames, ratios, alpha=0.2, color="#06b6d4")
-    style_axis(ax2, title="Vein-to-Artery Area Ratio",
-               xlabel="Frame Index", ylabel="V/A Ratio")
+    style_axis(ax2, title="静脉/动脉面积比",
+               xlabel="帧序号", ylabel="V/A 比值")
 
     plt.tight_layout()
 
@@ -131,43 +131,43 @@ def _run_diagnosis(state: dict, threshold: float):
 
 def _format_diagnosis_report(result: dict, n_frames: int, features: dict = None) -> str:
     """格式化诊断报告（含完整特征表）"""
-    lines = ["### 🩺 DVT Diagnosis Report\n"]
+    lines = ["### 🩺 DVT 诊断报告\n"]
 
     if result["is_dvt"] is None:
         lines.append(f"**Status**: {result['diagnosis']}")
         return "\n".join(lines)
 
-    lines.append(f"**Result**: {result['diagnosis']}\n")
+    lines.append(f"**诊断结果**: {result['diagnosis']}\n")
 
     # 关键指标表
-    lines.append("#### Key Features\n")
-    lines.append("| Feature | Value | Description |")
-    lines.append("|---------|-------|-------------|")
+    lines.append("#### 关键特征\n")
+    lines.append("| 特征 | 值 | 说明 |")
+    lines.append("|------|-----|------|")
 
     if features:
-        lines.append(f"| **VCR** | {features.get('vcr', 0):.4f} | Vein Compression Ratio (min/max) |")
-        lines.append(f"| **VDR** | {features.get('vdr', 0):.4f} | Vein Disappearance Rate |")
+        lines.append(f"| **VCR** | {features.get('vcr', 0):.4f} | 静脉压缩比 (min/max) |")
+        lines.append(f"| **VDR** | {features.get('vdr', 0):.4f} | 静脉消失率 |")
         lines.append(f"| **VARR** | {features.get('varr', 0):.4f} | (max-min)/max |")
-        lines.append(f"| **vein_cv** | {features.get('vein_cv', 0):.4f} | std/mean |")
-        lines.append(f"| **MVAR** | {features.get('mvar', 0):.4f} | min(vein/artery) |")
-        lines.append(f"| vein_slope | {features.get('vein_slope', 0):.6f} | Negative = normal |")
-        lines.append(f"| max_drop_ratio | {features.get('max_drop_ratio', 0):.4f} | Larger = rapid collapse |")
-        lines.append(f"| vein_detect_rate | {features.get('vein_detect_rate', 0):.2%} | |")
-        lines.append(f"| artery_stability | {features.get('artery_stability', 0):.4f} | |")
+        lines.append(f"| **vein_cv** | {features.get('vein_cv', 0):.4f} | 变异系数 std/mean |")
+        lines.append(f"| **MVAR** | {features.get('mvar', 0):.4f} | 最小静脉/动脉比 |")
+        lines.append(f"| vein_slope | {features.get('vein_slope', 0):.6f} | 负值=正常 |")
+        lines.append(f"| max_drop_ratio | {features.get('max_drop_ratio', 0):.4f} | 越大=越快塌陷 |")
+        lines.append(f"| vein_detect_rate | {features.get('vein_detect_rate', 0):.2%} | 静脉检出率 |")
+        lines.append(f"| artery_stability | {features.get('artery_stability', 0):.4f} | 动脉稳定性 |")
     else:
-        lines.append(f"| Area ratio (min/max) | {result['area_ratio']:.4f} | |")
-        lines.append(f"| Area reduction | {result['area_change_percent']:.1f}% | |")
+        lines.append(f"| 面积比 (min/max) | {result['area_ratio']:.4f} | |")
+        lines.append(f"| 面积缩减率 | {result['area_change_percent']:.1f}% | |")
 
-    lines.append(f"| Min vein area | {result.get('min_area', 'N/A')} px | |")
-    lines.append(f"| Max vein area | {result.get('max_area', 'N/A')} px | |")
+    lines.append(f"| 静脉最小面积 | {result.get('min_area', 'N/A')} px | |")
+    lines.append(f"| 静脉最大面积 | {result.get('max_area', 'N/A')} px | |")
 
     # 判断依据
     ml_thresh = result.get("ml_threshold")
     if ml_thresh is not None:
-        lines.append(f"| ML threshold (VCR) | {ml_thresh:.3f} | High-recall optimized |")
-    lines.append(f"| Simple threshold | {result.get('threshold', 0.4):.2f} | min/max threshold |")
-    lines.append(f"| Confidence | {result['confidence']:.2f} | |")
-    lines.append(f"| Frames analyzed | {n_frames} | |")
+        lines.append(f"| ML 阈值 (VCR) | {ml_thresh:.3f} | 高召回率优化 |")
+    lines.append(f"| 简单阈值 | {result.get('threshold', 0.4):.2f} | min/max 阈值 |")
+    lines.append(f"| 置信度 | {result['confidence']:.2f} | |")
+    lines.append(f"| 分析帧数 | {n_frames} | |")
 
     return "\n".join(lines)
 
@@ -183,14 +183,14 @@ def _diagnosis_summary_html(result: dict) -> str:
                     border:2px solid #dc2626; border-radius:16px; margin:8px 0;">
             <div style="font-size:52px; margin-bottom:8px;">⚠️</div>
             <div style="font-size:24px; font-weight:800; color:#ef4444; margin-bottom:6px;">
-                DVT Suspected
+                DVT 疑似
             </div>
             <div style="font-size:14px; color:#b91c1c; margin-bottom:4px;">
-                VCR = {result.get('area_ratio', 0):.3f} &nbsp;|&nbsp; Confidence {result['confidence']:.0%}
+                VCR = {result.get('area_ratio', 0):.3f} &nbsp;|&nbsp; 置信度 {result['confidence']:.0%}
             </div>
             <div style="font-size:12px; color:#64748b; margin-top:8px; line-height:1.6;">
-                Vein resists compression during ultrasound examination<br>
-                <b>Further clinical examination recommended</b>
+                静脉在超声压缩检查中拒绝塌陷<br>
+                <b>建议进一步临床检查</b>
             </div>
         </div>"""
     else:
@@ -199,14 +199,14 @@ def _diagnosis_summary_html(result: dict) -> str:
                     border:2px solid #059669; border-radius:16px; margin:8px 0;">
             <div style="font-size:52px; margin-bottom:8px;">✅</div>
             <div style="font-size:24px; font-weight:800; color:#10b981; margin-bottom:6px;">
-                Normal
+                正常
             </div>
             <div style="font-size:14px; color:#047857; margin-bottom:4px;">
-                VCR = {result.get('area_ratio', 0):.3f} &nbsp;|&nbsp; Confidence {result['confidence']:.0%}
+                VCR = {result.get('area_ratio', 0):.3f} &nbsp;|&nbsp; 置信度 {result['confidence']:.0%}
             </div>
             <div style="font-size:12px; color:#64748b; margin-top:8px; line-height:1.6;">
-                Vein collapses normally, area reduction {result.get('area_change_percent', 0):.0f}%<br>
-                No thrombosis signs detected
+                静脉正常塌陷，面积缩减 {result.get('area_change_percent', 0):.0f}%<br>
+                未见血栓征象
             </div>
         </div>"""
 
@@ -220,35 +220,35 @@ def build_diagnosis_tab(state: gr.State):
             <div style="padding:16px 20px; background:linear-gradient(135deg, #f0f9ff, #eff6ff);
                         border-radius:12px; border:1px solid #e2e8f0; margin-bottom:8px;">
                 <h3 style="margin:0 0 4px 0; color:#1e293b; font-size:16px;">
-                    🩺 DVT Intelligent Diagnosis
+                    🩺 DVT 智能诊断
                 </h3>
                 <p style="margin:0; color:#64748b; font-size:13px;">
-                    Automatic DVT assessment based on 19-dimensional temporal features from vein area changes
+                    基于 19 维时序特征的 DVT 自动评估，通过静脉面积变化分析血栓征象
                 </p>
             </div>
             """)
 
             threshold_slider = gr.Slider(
                 minimum=0.1, maximum=0.8, value=0.4, step=0.05,
-                label="⚙️ DVT Threshold",
-                info="min_area / max_area > threshold → DVT suspected",
+                label="⚙️ DVT 诊断阈值",
+                info="min_area / max_area > 阈值 → 疑似 DVT",
             )
 
-            diagnose_btn = gr.Button("🩺 Run Diagnosis", variant="primary", size="lg")
+            diagnose_btn = gr.Button("🩺 运行诊断", variant="primary", size="lg")
 
             diagnosis_html = gr.HTML("""
             <div style="text-align:center; padding:24px; color:#64748b; border:1px dashed #cbd5e1; border-radius:12px;">
-                Complete segmentation first, then click「Run Diagnosis」
+                请先完成分割，然后点击「运行诊断」
             </div>
             """)
 
             diagnosis_report = gr.Markdown("""
-> 💡 **How it works**: Normal veins collapse under probe pressure (VCR → 0). 
-> Thrombotic veins resist compression (VCR → 1).
+> 💡 **诊断原理**: 正常静脉在探头压迫下会塌陷 (VCR → 0)。
+> 血栓静脉拒绝塌陷 (VCR → 1)。
 """)
 
         with gr.Column(scale=3):
-            area_plot = gr.Plot(label="Area Change Curves")
+            area_plot = gr.Plot(label="面积变化曲线")
 
     diagnose_btn.click(
         fn=_run_diagnosis,
