@@ -83,7 +83,6 @@ def build_app():
                 <div class="topbar-clock" id="beijing-clock">
                     <span class="clock-date">加载中...</span> --:--:--
                 </div>
-                <div class="topbar-badge" title="通知">🔔<span class="notification-dot"></span></div>
             </div>
         </div>
         <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"
@@ -172,6 +171,10 @@ def build_app():
                 dash_workflow,
                 tabs,
                 upload_handles["test_subset_radio"],
+                upload_handles["train_source_btn"],
+                upload_handles["val_source_btn"],
+                upload_handles["test_source_btn"],
+                upload_handles["dataset_selector_status"],
             ],
         )
 
