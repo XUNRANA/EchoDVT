@@ -1,0 +1,548 @@
+{
+  "version": 1,
+  "correct": 73,
+  "total": 76,
+  "accuracy": 0.9605,
+  "precision": 1.0,
+  "recall": 0.9211,
+  "f1": 0.9589,
+  "tp": 35,
+  "fp": 0,
+  "tn": 38,
+  "fn": 3,
+  "details": [
+    {
+      "case": "AN_LEKA-V1E",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.4593
+    },
+    {
+      "case": "Bao_hua_yu_V1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.3443
+    },
+    {
+      "case": "CAI_YUANZHANG-V1E1-1",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.7044
+    },
+    {
+      "case": "CHEN_GENDI-V1E",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.6761
+    },
+    {
+      "case": "CHEN_HUI-V1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.171
+    },
+    {
+      "case": "CHEN_YONGLING-V1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.1482
+    },
+    {
+      "case": "CL-V1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.0942
+    },
+    {
+      "case": "Cao_li_V1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.2336
+    },
+    {
+      "case": "Chen_jun_yuan_V1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.284
+    },
+    {
+      "case": "Chen_yan_V1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.1124
+    },
+    {
+      "case": "Chen_yuntian-v1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.2431
+    },
+    {
+      "case": "DAI_RUNLI-V1E1",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.724
+    },
+    {
+      "case": "Du_nan_V1E1",
+      "actual": "DVT",
+      "predicted": "正常",
+      "correct": false,
+      "vcr": 0.2572
+    },
+    {
+      "case": "Duan_jie_gang_V1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.0793
+    },
+    {
+      "case": "FANG_BADI-V1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.1031
+    },
+    {
+      "case": "Fan_qi_chun_V1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.1526
+    },
+    {
+      "case": "Fang_ting_hua_V1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.1381
+    },
+    {
+      "case": "Gendi_Ding_V1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.0745
+    },
+    {
+      "case": "He_si_yu_V1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.0843
+    },
+    {
+      "case": "Huang_hui_qin_V1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.1135
+    },
+    {
+      "case": "Huang_si_lei_V1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.1032
+    },
+    {
+      "case": "Jiang_youhui'-v1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.1111
+    },
+    {
+      "case": "LIU_REN-V1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.0858
+    },
+    {
+      "case": "LIU_YUFAN-V1E1-3",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.5099
+    },
+    {
+      "case": "Li_fu_sun_V1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.1996
+    },
+    {
+      "case": "Li_jun_hai_V1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.0815
+    },
+    {
+      "case": "Ma_xin_V1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.2041
+    },
+    {
+      "case": "NI_YUTONG-V1E-1",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.5622
+    },
+    {
+      "case": "NI_YUTONG-V1E-2",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.659
+    },
+    {
+      "case": "PAN_GUOHUA-V1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.1295
+    },
+    {
+      "case": "QIAN_SHUANGSHUANG-V1E",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.5449
+    },
+    {
+      "case": "QU_ZHONGYUN-V1E",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.7356
+    },
+    {
+      "case": "Ren_min_V1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.1656
+    },
+    {
+      "case": "SHI_MEIYU-V1E",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.5487
+    },
+    {
+      "case": "SONG_ZHUSHUI-V1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.1439
+    },
+    {
+      "case": "SUN_ZOUYUN-V1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.0893
+    },
+    {
+      "case": "Shao_shi_yue_V1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.089
+    },
+    {
+      "case": "Shen_weibai-v1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.1325
+    },
+    {
+      "case": "Shen_yue_ping_V1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.0543
+    },
+    {
+      "case": "Shi_gui_qiang_V1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.1703
+    },
+    {
+      "case": "Shu_gui_xiang_V1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.1108
+    },
+    {
+      "case": "TAO_GUOBING-V1E",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.6268
+    },
+    {
+      "case": "Tong_shen_yao_V1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.0897
+    },
+    {
+      "case": "WANG_WEIFU-V1E",
+      "actual": "DVT",
+      "predicted": "正常",
+      "correct": false,
+      "vcr": 0.3669
+    },
+    {
+      "case": "WAN_FENQIAN-V1E_20240724_225519",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.8194
+    },
+    {
+      "case": "WENG_QINGYA-V1E-1",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.803
+    },
+    {
+      "case": "Wan_hong_qi_V1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.1142
+    },
+    {
+      "case": "Wang_qiang_V1E1",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.6498
+    },
+    {
+      "case": "Wei_cheng_zhu_V1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.1057
+    },
+    {
+      "case": "Wen_ju_hua_V1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.0748
+    },
+    {
+      "case": "Wu_yu_ru_V1E1",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.4749
+    },
+    {
+      "case": "XU_MEIYING-V1E",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.7141
+    },
+    {
+      "case": "XU_XIAOXIU-V1E",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.4049
+    },
+    {
+      "case": "Xiang_li_li_V1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.0923
+    },
+    {
+      "case": "Xie_xue_hong_V1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.1488
+    },
+    {
+      "case": "YANG_MUCHEN-V1E1-6",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.57
+    },
+    {
+      "case": "YAN_SHIQI-V1E",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.7083
+    },
+    {
+      "case": "YAN_SHIQI-V1E-2",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.6509
+    },
+    {
+      "case": "YAN_SHIQI-V1E-3",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.6764
+    },
+    {
+      "case": "YU_GUIZHONG-V1E-_(3)",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.7603
+    },
+    {
+      "case": "ZHANG_CHENYUAN-V1E",
+      "actual": "DVT",
+      "predicted": "正常",
+      "correct": false,
+      "vcr": 0.3406
+    },
+    {
+      "case": "ZHANG_JUNHUA-V1E-_(4)",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.672
+    },
+    {
+      "case": "ZHANG_YUEFANG-V1E",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.6628
+    },
+    {
+      "case": "ZHAO_SUFANG-V1E1-3",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.5921
+    },
+    {
+      "case": "ZHU_KAISHI-V1E",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.7566
+    },
+    {
+      "case": "Zhao_cheng_ying_V1E1_2024-2-28_12378_2",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.595
+    },
+    {
+      "case": "Zhu_hai_yuan_V1E1",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.4587
+    },
+    {
+      "case": "guo_zhi_liang_V1E1",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.7249
+    },
+    {
+      "case": "huang_zhong_V1E1",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.7063
+    },
+    {
+      "case": "ji_quan_jie_V1E1",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.6586
+    },
+    {
+      "case": "jin_xiu_wei_V1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.1269
+    },
+    {
+      "case": "lang_qi_jun_V1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.0652
+    },
+    {
+      "case": "li_juan_V1E1",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.7206
+    },
+    {
+      "case": "wei_fu_liang_V1E1",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.8087
+    },
+    {
+      "case": "yang_su_qin_V1E1",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.5602
+    },
+    {
+      "case": "zhou_li_hua_V1E1",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.8261
+    }
+  ],
+  "timestamp": "2026-03-17 05:11:15"
+}

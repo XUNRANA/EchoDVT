@@ -130,14 +130,16 @@ def _demo_detection_from_gt(state: dict, img: np.ndarray):
 
 def _format_detection_report(result: dict, w: int, h: int) -> str:
     """格式化检测结果报告"""
+    cls_cn = {"artery": "动脉", "vein": "静脉"}
     lines = ["### 🎯 检测结果\n"]
     lines.append("| 类别 | 置信度 | 位置 (x1,y1,x2,y2) | 状态 |")
     lines.append("|------|--------|---------------------|------|")
 
     for cls_name in ("artery", "vein"):
+        cn = cls_cn[cls_name]
         det = result.get(cls_name)
         if det is None:
-            lines.append(f"| {cls_name} | — | — | ❌ 未检测到 |")
+            lines.append(f"| {cn} | — | — | ❌ 未检测到 |")
             continue
 
         box = det["box"]
@@ -157,7 +159,7 @@ def _format_detection_report(result: dict, w: int, h: int) -> str:
             tags.append("✅ 正常检测")
 
         status = " ".join(tags)
-        lines.append(f"| {cls_name} | {conf:.3f} | {box_str} | {status} |")
+        lines.append(f"| {cn} | {conf:.3f} | {box_str} | {status} |")
 
     return "\n".join(lines)
 

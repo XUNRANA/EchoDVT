@@ -1,0 +1,157 @@
+{
+  "version": 1,
+  "correct": 12,
+  "total": 20,
+  "accuracy": 0.6,
+  "precision": 1.0,
+  "recall": 0.2,
+  "f1": 0.3333,
+  "tp": 2,
+  "fp": 0,
+  "tn": 10,
+  "fn": 8,
+  "sample_size": 10,
+  "details": [
+    {
+      "case": "An_jin_ya_V4",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.0801
+    },
+    {
+      "case": "BAI_QINGZHEN-V4-1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.1051
+    },
+    {
+      "case": "BAI_QINGZHEN-V4-2",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.0496
+    },
+    {
+      "case": "BAI_QINGZHEN-V4-3",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.0303
+    },
+    {
+      "case": "BAI_QINGZHEN-V4-4",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.1052
+    },
+    {
+      "case": "BAI_QINGZHEN-V4-5",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.0703
+    },
+    {
+      "case": "BAI_QINGZHEN-V4-6",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.0441
+    },
+    {
+      "case": "BIAN_LU-V4",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.0024
+    },
+    {
+      "case": "Bao_hua_yu_V4",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.0291
+    },
+    {
+      "case": "CAO_HONGBO-V4-1",
+      "actual": "正常",
+      "predicted": "正常",
+      "correct": true,
+      "vcr": 0.1786
+    },
+    {
+      "case": "BAO_ZIJUN-V4E1-1",
+      "actual": "DVT",
+      "predicted": "正常",
+      "correct": false,
+      "vcr": 0.3475
+    },
+    {
+      "case": "BAO_ZIJUN-V4E1-2",
+      "actual": "DVT",
+      "predicted": "正常",
+      "correct": false,
+      "vcr": 0.3556
+    },
+    {
+      "case": "BAO_ZIJUN-V4E1-3",
+      "actual": "DVT",
+      "predicted": "正常",
+      "correct": false,
+      "vcr": 0.1176
+    },
+    {
+      "case": "BAO_ZIJUN-V4E1-4",
+      "actual": "DVT",
+      "predicted": "正常",
+      "correct": false,
+      "vcr": 0.1511
+    },
+    {
+      "case": "BAO_ZIJUN-V4E1-5",
+      "actual": "DVT",
+      "predicted": "正常",
+      "correct": false,
+      "vcr": 0.0001
+    },
+    {
+      "case": "CAI_YUANZHANG-V1E1-2",
+      "actual": "DVT",
+      "predicted": "正常",
+      "correct": false,
+      "vcr": 0.1088
+    },
+    {
+      "case": "CAI_YUANZHANG-V1E1-3",
+      "actual": "DVT",
+      "predicted": "正常",
+      "correct": false,
+      "vcr": 0.0002
+    },
+    {
+      "case": "CAI_YUANZHANG-V1E1-4",
+      "actual": "DVT",
+      "predicted": "正常",
+      "correct": false,
+      "vcr": 0.0769
+    },
+    {
+      "case": "CAI_YUANZHANG-V1E1-5",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.5889
+    },
+    {
+      "case": "Chen_lan_hua_V1E1",
+      "actual": "DVT",
+      "predicted": "DVT",
+      "correct": true,
+      "vcr": 0.5538
+    }
+  ],
+  "timestamp": "2026-03-17 05:58:34"
+}

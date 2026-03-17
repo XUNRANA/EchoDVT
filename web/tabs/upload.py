@@ -249,7 +249,7 @@ def _build_frame_gallery(frame_files: list, max_frames: int = 12) -> list:
             break
         img = cv2.imread(frame_files[i])
         if img is not None:
-            gallery.append((bgr_to_rgb(img), f"Frame {i}"))
+            gallery.append((bgr_to_rgb(img), f"第 {i} 帧"))
     return gallery
 
 
@@ -359,3 +359,10 @@ def build_upload_tab(state: gr.State):
         outputs=[state, preview_image, case_info, frame_gallery],
     )
 
+    return {
+        "split_radio": split_radio,
+        "case_dropdown": case_dropdown,
+        "preview_image": preview_image,
+        "case_info": case_info,
+        "frame_gallery": frame_gallery,
+    }
