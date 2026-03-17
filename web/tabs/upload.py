@@ -9,7 +9,6 @@ import gradio as gr
 import cv2
 import numpy as np
 import tempfile
-import shutil
 import traceback
 from pathlib import Path
 from typing import Dict, List
@@ -275,34 +274,114 @@ def _build_frame_gallery(frame_files: list, max_frames: int = 12) -> list:
     return gallery
 
 
-def _on_source_changed(split: str, test_subset: str):
-    if split == "test":
-        cases = _list_cases("test", test_subset)
-        subset_update = gr.update(visible=True, value=test_subset)
-    else:
-        cases = _list_cases(split)
-        subset_update = gr.update(visible=False, value="normal")
+def _get_dataset_counts() -> Dict[str, int]:
+    return {
+        "train": len(_list_cases("train")),
+        "val": len(_list_cases("val")),
+        "test_normal": len(_list_cases("test", "normal")),
+        "test_patient": len(_list_cases("test", "patient")),
+    }
 
-    if not cases:
-        return gr.update(choices=[], value=None), subset_update
-    return gr.update(choices=cases, value=cases[0]), subset_update
+
+def _build_dataset_selector_status_html(split: str, test_subset: str = "normal") -> str:
+    counts = _get_dataset_counts()
+    split_label = {
+        "train": "📚 训练集",
+        "val": "🎯 验证集",
+        "test": "🧪 测试集",
+    }.get(split, "🎯 验证集")
+
+    split_desc = {
+        "train": f"{counts['train']} 例，全部正常，适合查看标准压缩超声序列。",
+        "val": f"{counts['val']} 例，正常与患者各半，适合快速验证完整链路。",
+        "test": (
+            f"{counts['test_normal'] + counts['test_patient']} 例，"
+            f"当前 test 子集：`{test_subset}`，适合直接抽取真实测试案例。"
+        ),
+    }.get(split, "")
+
+    return f"""
+    <div class="dataset-selector-status">
+        <div class="dataset-selector-pill">当前入口：{split_label}</div>
+        <div class="dataset-selector-text">{split_desc}</div>
+    </div>
+    """
+
+
+def _get_dataset_selector_updates(
+    split: str,
+    test_subset: str = "normal",
+    selected_case: str | None = None,
+):
+    effective_subset = test_subset if split == "test" else "normal"
+    cases = _list_cases(split, effective_subset)
+    case_value = selected_case if selected_case in cases else (cases[0] if cases else None)
+    subset_update = gr.update(visible=(split == "test"), value=effective_subset)
+    return (
+        gr.update(value=split),
+        gr.update(choices=cases, value=case_value),
+        subset_update,
+        gr.update(variant="primary" if split == "train" else "secondary"),
+        gr.update(variant="primary" if split == "val" else "secondary"),
+        gr.update(variant="primary" if split == "test" else "secondary"),
+        _build_dataset_selector_status_html(split, effective_subset),
+    )
+
+
+def _on_source_changed(split: str, test_subset: str):
+    _, case_update, subset_update, train_btn_update, val_btn_update, test_btn_update, selector_status = (
+        _get_dataset_selector_updates(split, test_subset)
+    )
+    return case_update, subset_update, train_btn_update, val_btn_update, test_btn_update, selector_status
+
+
+def _select_train_source():
+    return _get_dataset_selector_updates("train", "normal")
+
+
+def _select_val_source():
+    return _get_dataset_selector_updates("val", "normal")
+
+
+def _select_test_source(test_subset: str):
+    return _get_dataset_selector_updates("test", test_subset)
+
+
+def _build_preview_placeholder(title: str, subtitle: str, width: int = 1200, height: int = 680) -> np.ndarray:
+    canvas = np.full((height, width, 3), 248, dtype=np.uint8)
+    cv2.rectangle(canvas, (48, 52), (width - 48, height - 52), (226, 232, 240), 2)
+    cv2.rectangle(canvas, (92, 96), (width - 92, height - 96), (219, 234, 254), 2)
+    cv2.putText(canvas, title, (118, 230), cv2.FONT_HERSHEY_SIMPLEX, 1.25, (37, 99, 235), 3, cv2.LINE_AA)
+    cv2.putText(canvas, subtitle, (118, 310), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (100, 116, 139), 2, cv2.LINE_AA)
+    cv2.putText(
+        canvas,
+        "Load a case or upload a local ultrasound video to begin.",
+        (118, 390),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.72,
+        (148, 163, 184),
+        2,
+        cv2.LINE_AA,
+    )
+    return canvas
 
 
 def build_upload_tab(state: gr.State):
     """构建数据输入 Tab"""
-    val_count = len(_list_cases("val"))
-    train_count = len(_list_cases("train"))
-    test_normal_count = len(_list_cases("test", "normal"))
-    test_patient_count = len(_list_cases("test", "patient"))
+    counts = _get_dataset_counts()
     dataset_info = (
-        f"train: {train_count} 例 (全部正常) | "
-        f"val: {val_count} 例 (38 正常 + 38 患者) | "
-        f"test: {test_normal_count + test_patient_count} 例 "
-        f"({test_normal_count} normal + {test_patient_count} patient)"
+        f"train: {counts['train']} 例 (全部正常) | "
+        f"val: {counts['val']} 例 (38 正常 + 38 患者) | "
+        f"test: {counts['test_normal'] + counts['test_patient']} 例 "
+        f"({counts['test_normal']} normal + {counts['test_patient']} patient)"
+    )
+    selector_status_html = _build_dataset_selector_status_html("val", "normal")
+    preview_placeholder = _build_preview_placeholder(
+        "Preview panel",
+        "Supports train / val / test cases and local ultrasound video upload",
     )
 
     with gr.Row(equal_height=False):
-        # ========== 左栏：输入区 ==========
         with gr.Column(scale=2):
             gr.HTML(_TAB_HEADER.format(
                 bg1="#f0f9ff", bg2="#eff6ff",
@@ -311,21 +390,61 @@ def build_upload_tab(state: gr.State):
             ))
 
             with gr.Tabs() as input_tabs:
-                # ---- 方式 A: 数据集 ----
                 with gr.Tab("从数据集选择", id="dataset"):
                     split_radio = gr.Radio(
                         choices=["train", "val", "test"],
                         value="val",
                         label="数据集",
                         info=dataset_info,
+                        visible=False,
                     )
+
+                    gr.HTML("""
+                    <div class="dataset-entry-strip">
+                        <div class="dataset-entry-headline">三组并行入口</div>
+                        <div class="dataset-entry-subtitle">先选择案例池，再进入具体病例与后续分析流程。</div>
+                    </div>
+                    """)
+
+                    with gr.Row(equal_height=False, elem_classes=["dataset-entry-row"]):
+                        with gr.Column(scale=1, min_width=0):
+                            train_source_btn = gr.Button(
+                                "📚 训练集",
+                                variant="secondary",
+                                elem_classes=["dataset-entry-btn"],
+                            )
+                            gr.HTML(
+                                f'<div class="dataset-entry-meta"><strong>{counts["train"]} 例</strong><span>全部正常，适合查看标准序列</span></div>'
+                            )
+
+                        with gr.Column(scale=1, min_width=0):
+                            val_source_btn = gr.Button(
+                                "🎯 验证集",
+                                variant="primary",
+                                elem_classes=["dataset-entry-btn"],
+                            )
+                            gr.HTML(
+                                f'<div class="dataset-entry-meta"><strong>{counts["val"]} 例</strong><span>38 正常 + 38 患者，适合快速验证</span></div>'
+                            )
+
+                        with gr.Column(scale=1, min_width=0):
+                            test_source_btn = gr.Button(
+                                "🧪 测试集",
+                                variant="secondary",
+                                elem_classes=["dataset-entry-btn"],
+                            )
+                            gr.HTML(
+                                f'<div class="dataset-entry-meta"><strong>{counts["test_normal"] + counts["test_patient"]} 例</strong><span>{counts["test_normal"]} normal + {counts["test_patient"]} patient</span></div>'
+                            )
+
+                    dataset_selector_status = gr.HTML(selector_status_html)
 
                     test_subset_radio = gr.Radio(
                         choices=["normal", "patient"],
                         value="normal",
                         label="test 子集",
                         visible=False,
-                        info="当数据集选择为 test 时，可切换 normal / patient 入口",
+                        info="切换 test 入口下的 normal / patient 案例池",
                     )
 
                     initial_cases = _list_cases("val")
@@ -341,9 +460,7 @@ def build_upload_tab(state: gr.State):
                         variant="primary", size="lg",
                     )
 
-                # ---- 方式 B: 上传视频 ----
                 with gr.Tab("上传本地视频", id="video_upload"):
-                    # ★ 使用 gr.File 替代 gr.Video，避免 "Video not playable" 错误
                     video_input = gr.File(
                         label="上传超声视频文件",
                         file_types=[".mp4", ".avi", ".mov", ".mkv", ".wmv", ".flv"],
@@ -365,17 +482,16 @@ def build_upload_tab(state: gr.State):
                     </div>
                     """)
 
-            # 案例信息
             case_info = gr.Markdown("""
-> 💡 **快速开始**: 先选择 `train / val / test` 数据集入口，再选择案例；也可以切换到「上传本地视频」直接加载本地超声视频。
+> 💡 **快速开始**: 先点击上方 `train / val / test` 入口卡，再选择具体案例；也可以切换到「上传本地视频」直接加载本地超声视频。
 """)
 
-        # ========== 右栏：预览区 ==========
         with gr.Column(scale=3):
             preview_image = gr.Image(
                 label="首帧预览（含 GT 标注叠加）",
                 height=420,
                 type="numpy",
+                value=preview_placeholder,
             )
 
             frame_gallery = gr.Gallery(
@@ -384,16 +500,67 @@ def build_upload_tab(state: gr.State):
                 object_fit="contain",
             )
 
-    # ========== 事件绑定 ==========
+    train_source_btn.click(
+        fn=_select_train_source,
+        outputs=[
+            split_radio,
+            case_dropdown,
+            test_subset_radio,
+            train_source_btn,
+            val_source_btn,
+            test_source_btn,
+            dataset_selector_status,
+        ],
+    )
+    val_source_btn.click(
+        fn=_select_val_source,
+        outputs=[
+            split_radio,
+            case_dropdown,
+            test_subset_radio,
+            train_source_btn,
+            val_source_btn,
+            test_source_btn,
+            dataset_selector_status,
+        ],
+    )
+    test_source_btn.click(
+        fn=_select_test_source,
+        inputs=[test_subset_radio],
+        outputs=[
+            split_radio,
+            case_dropdown,
+            test_subset_radio,
+            train_source_btn,
+            val_source_btn,
+            test_source_btn,
+            dataset_selector_status,
+        ],
+    )
+
     split_radio.change(
         fn=_on_source_changed,
         inputs=[split_radio, test_subset_radio],
-        outputs=[case_dropdown, test_subset_radio],
+        outputs=[
+            case_dropdown,
+            test_subset_radio,
+            train_source_btn,
+            val_source_btn,
+            test_source_btn,
+            dataset_selector_status,
+        ],
     )
     test_subset_radio.change(
         fn=_on_source_changed,
         inputs=[split_radio, test_subset_radio],
-        outputs=[case_dropdown, test_subset_radio],
+        outputs=[
+            case_dropdown,
+            test_subset_radio,
+            train_source_btn,
+            val_source_btn,
+            test_source_btn,
+            dataset_selector_status,
+        ],
     )
 
     load_btn.click(
@@ -421,4 +588,8 @@ def build_upload_tab(state: gr.State):
         "preview_image": preview_image,
         "case_info": case_info,
         "frame_gallery": frame_gallery,
+        "train_source_btn": train_source_btn,
+        "val_source_btn": val_source_btn,
+        "test_source_btn": test_source_btn,
+        "dataset_selector_status": dataset_selector_status,
     }

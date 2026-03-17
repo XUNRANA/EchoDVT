@@ -1172,22 +1172,35 @@ def _build_workflow_status_html(state: Optional[dict]) -> str:
 
 def _quick_load_next_val_case(state: dict):
     """自动加载下一个验证集案例，并切换到数据输入页"""
-    from web.tabs.upload import _list_cases, _on_case_selected
+    from web.tabs.upload import _get_dataset_selector_updates, _list_cases, _on_case_selected
 
     val_cases = _list_cases("val")
     if not val_cases:
         msg = "⚠️ 验证集为空，无法自动加载案例。"
+        (
+            split_update,
+            case_update,
+            subset_update,
+            train_btn_update,
+            val_btn_update,
+            test_btn_update,
+            selector_status,
+        ) = _get_dataset_selector_updates("val", "normal")
         return (
             state,
-            gr.update(value="val"),
-            gr.update(choices=[], value=None),
+            split_update,
+            case_update,
             None,
             msg,
             [],
             msg,
             _build_workflow_status_html(state),
             gr.Tabs(selected="upload"),
-            gr.update(value="normal", visible=False),
+            subset_update,
+            train_btn_update,
+            val_btn_update,
+            test_btn_update,
+            selector_status,
         )
 
     current = state.get("current_case")
@@ -1199,18 +1212,31 @@ def _quick_load_next_val_case(state: dict):
 
     new_state, preview, info_md, gallery = _on_case_selected(next_case, "val", "normal", state)
     status = f"✅ 已自动加载验证集案例 `{next_case}`，请继续检测或一键分析。"
+    (
+        split_update,
+        case_update,
+        subset_update,
+        train_btn_update,
+        val_btn_update,
+        test_btn_update,
+        selector_status,
+    ) = _get_dataset_selector_updates("val", "normal", selected_case=next_case)
 
     return (
         new_state,
-        gr.update(value="val"),
-        gr.update(choices=val_cases, value=next_case),
+        split_update,
+        case_update,
         preview,
         info_md,
         gallery,
         status,
         _build_workflow_status_html(new_state),
         gr.Tabs(selected="upload"),
-        gr.update(value="normal", visible=False),
+        subset_update,
+        train_btn_update,
+        val_btn_update,
+        test_btn_update,
+        selector_status,
     )
 
 
@@ -1515,38 +1541,32 @@ def build_dashboard_panel(state: gr.State):
     </div>
     """)
 
-    # 第一块：系统状态
-    status_cards = gr.HTML(elem_id="status-cards")
-
-    # 第二块：图表 + 快速操作 + 数据集统计
-    with gr.Row():
+    with gr.Row(equal_height=False):
         with gr.Column(scale=3):
-            distribution_chart = gr.Plot(label="train / val 数据概览")
+            status_cards = gr.HTML(elem_id="status-cards")
 
         with gr.Column(scale=2):
-            dataset_cards = gr.HTML(elem_id="dataset-cards")
-
             gr.HTML("""
-            <div class="dashboard-section" style="margin-top: 16px;">
-                <h3 class="section-title">⚡ 快速操作</h3>
-                <div style="display: flex; flex-direction: column; gap: 10px;">
+            <div class="dashboard-section dashboard-actions-panel">
+                <h3 class="section-title">⚡ 快速开始</h3>
+                <p class="dashboard-muted-copy">先自动加载一个验证集案例，再继续一键分析或分步查看。</p>
             """)
             quick_load_btn = gr.Button("📂 自动加载下一个验证集案例", variant="secondary")
             quick_analyze_btn = gr.Button("🚀 运行全流程分析", variant="primary")
             quick_action_status = gr.Markdown(
                 "> 💡 仪表盘默认展示最新统一模型的 train / val 指标；点击上方按钮即可开始案例分析。"
             )
-            gr.HTML("</div></div>")
+            gr.HTML("</div>")
 
             workflow_status = gr.HTML(elem_id="workflow-status")
 
-    # 第三块：误判分析
+    dataset_cards = gr.HTML(elem_id="dataset-cards")
+    distribution_chart = gr.Plot(label="train / val 数据概览")
+
     error_records = gr.HTML(elem_id="error-records")
 
-    # 刷新按钮
     refresh_btn = gr.Button("🔄 刷新仪表盘数据", variant="secondary", size="sm")
 
-    # ---- 事件 ----
     refresh_btn.click(
         fn=_refresh_dashboard,
         inputs=[state],
