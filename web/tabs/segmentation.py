@@ -19,6 +19,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from web.utils.visualization import overlay_masks, bgr_to_rgb
 from web.utils.metrics import compute_frame_metrics, compute_mask_area
 from web.services.inference import DEFAULT_SAM2_VARIANT, DEFAULT_LORA_WEIGHTS
+from web.utils.ui import render_page_header
 
 
 FIXED_USE_MFP = True
@@ -43,9 +44,9 @@ def _run_sam2_segmentation(
 ):
     """运行 SAM2 分割"""
     if not state.get("frame_files"):
-        return state, None, [], "⚠️ 请先在「📤 数据输入」Tab 中加载案例"
+        return state, None, [], "请先在“数据输入”页加载案例"
     if not state.get("detections"):
-        return state, None, [], "⚠️ 请先在「🎯 YOLO 检测」Tab 中运行检测"
+        return state, None, [], "请先完成目标检测"
 
     images_dir = Path(state["images_dir"])
     masks_dir = Path(state["masks_dir"])
@@ -56,7 +57,7 @@ def _run_sam2_segmentation(
     artery_det = detections.get("artery")
     vein_det = detections.get("vein")
     if artery_det is None or vein_det is None:
-        return state, None, [], "❌ 检测框不完整，无法执行分割"
+        return state, None, [], "检测框不完整，无法执行分割"
 
     # 收集 GT mask 帧索引
     mask_files_list = sorted(masks_dir.glob("*.png"), key=lambda p: int(p.stem)) if masks_dir.exists() else []
@@ -174,7 +175,7 @@ def _demo_from_gt(gt_frame_map, images_dir, frame_files):
 
 def _format_segmentation_report(metrics_list, total_frames):
     """生成分割报告"""
-    lines = [f"### 🔬 分割完成\n"]
+    lines = [f"### 分割完成\n"]
     lines.append(f"- **模型变体**: {DEFAULT_SAM2_VARIANT}")
     lines.append(f"- **总帧数**: {total_frames}")
     lines.append(f"- **已评估帧**: {len(metrics_list)} (有 GT 标注的帧)")
@@ -185,7 +186,7 @@ def _format_segmentation_report(metrics_list, total_frames):
         avg_a_dice = np.mean([m["artery_dice"] for m in metrics_list])
         avg_v_dice = np.mean([m["vein_dice"] for m in metrics_list])
 
-        lines.append(f"\n### 📐 平均指标\n")
+        lines.append(f"\n### 平均指标\n")
         lines.append("| 指标 | 值 |")
         lines.append("|------|------|")
         lines.append(f"| **平均 Dice** | {avg_dice:.4f} |")
@@ -203,23 +204,17 @@ def build_segmentation_tab(state: gr.State):
 
     with gr.Row(equal_height=False):
         with gr.Column(scale=2):
-            gr.HTML("""
-            <div style="padding:16px 20px; background:linear-gradient(135deg, #f0f9ff, #eff6ff);
-                        border-radius:12px; border:1px solid #e2e8f0; margin-bottom:8px;">
-                <h3 style="margin:0 0 4px 0; color:#1e293b; font-size:16px;">
-                    🔬 SAM2 视频分割
-                </h3>
-                <p style="margin:0; color:#64748b; font-size:13px;">
-                    使用首帧 YOLO 检测框作为 prompt，通过 SAM2 记忆传播机制完成全视频分割
-                </p>
-            </div>
-            """)
+            gr.HTML(render_page_header(
+                "SAM2 视频分割",
+                "使用首帧检测框作为 prompt，通过 SAM2 记忆传播完成视频分割。",
+                eyebrow="Segmentation",
+            ))
 
-            segment_btn = gr.Button("🔬 开始分割", variant="primary", size="lg")
+            segment_btn = gr.Button("开始分割", variant="primary", size="lg")
 
-            seg_report = gr.Markdown("""
-> 💡 已固定最优 SAM2 配置（LoRA r8），点击「开始分割」即可。分割完成后右侧图库查看结果。
-""")
+            seg_report = gr.Markdown(
+                "当前固定使用最优 SAM2 LoRA 权重。完成后可在右侧查看分割预览和采样结果。"
+            )
 
         with gr.Column(scale=3):
             seg_preview = gr.Image(

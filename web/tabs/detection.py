@@ -17,6 +17,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "yolo"))
 
 from web.services.inference import DEFAULT_YOLO_MODEL
 from web.utils.visualization import draw_detection_boxes, bgr_to_rgb
+from web.utils.ui import render_page_header
 
 
 FIXED_YOLO_CONFIDENCE = 0.1
@@ -33,13 +34,13 @@ def _get_fixed_yolo_model_display() -> str:
 def _run_yolo_detection(state: dict, conf_threshold: float):
     """运行 YOLO 检测"""
     if not state.get("frame_files"):
-        return state, None, "⚠️ 请先在「📤 数据输入」Tab 中加载案例"
+        return state, None, "请先在“数据输入”页加载案例"
 
     # 加载首帧
     first_frame_path = state["frame_files"][0]
     img = cv2.imread(first_frame_path)
     if img is None:
-        return state, None, f"❌ 无法读取图像: {first_frame_path}"
+        return state, None, f"无法读取图像: {first_frame_path}"
 
     h, w = img.shape[:2]
 
@@ -55,7 +56,7 @@ def _run_yolo_detection(state: dict, conf_threshold: float):
         # 如果无法导入 ultralytics，使用 GT mask
         return _demo_detection_from_gt(state, img)
     except Exception as e:
-        return state, None, f"❌ YOLO 推理失败: {e}"
+        return state, None, f"YOLO 推理失败: {e}"
 
     # 更新 state
     state["detections"] = result
@@ -76,7 +77,7 @@ def _demo_detection_from_gt(state: dict, img: np.ndarray):
     first_mask_path = masks_dir / "00000.png"
 
     if not first_mask_path.exists():
-        return state, bgr_to_rgb(img), "⚠️ 固定 YOLO 权重缺失且无 GT mask，无法进行检测"
+        return state, bgr_to_rgb(img), "固定 YOLO 权重缺失且无 GT mask，无法进行检测"
 
     gt_mask = cv2.imread(str(first_mask_path), cv2.IMREAD_GRAYSCALE)
     h, w = img.shape[:2]
@@ -95,7 +96,7 @@ def _demo_detection_from_gt(state: dict, img: np.ndarray):
     vis = draw_detection_boxes(img, result)
     vis_rgb = bgr_to_rgb(vis)
 
-    report = "ℹ️ **Demo 模式**: 检测框从 GT Mask 中提取（非 YOLO 推理）\n\n"
+    report = "**Demo 模式**: 检测框从 GT mask 中提取（非 YOLO 推理）\n\n"
     report += _format_detection_report(result, w, h)
 
     return state, vis_rgb, report
@@ -104,7 +105,7 @@ def _demo_detection_from_gt(state: dict, img: np.ndarray):
 def _format_detection_report(result: dict, w: int, h: int) -> str:
     """格式化检测结果报告"""
     cls_cn = {"artery": "动脉", "vein": "静脉"}
-    lines = ["### 🎯 检测结果\n"]
+    lines = ["### 检测结果\n"]
     lines.append("| 类别 | 置信度 | 位置 (x1,y1,x2,y2) | 状态 |")
     lines.append("|------|--------|---------------------|------|")
 
@@ -112,7 +113,7 @@ def _format_detection_report(result: dict, w: int, h: int) -> str:
         cn = cls_cn[cls_name]
         det = result.get(cls_name)
         if det is None:
-            lines.append(f"| {cn} | — | — | ❌ 未检测到 |")
+            lines.append(f"| {cn} | — | — | 未检测到 |")
             continue
 
         box = det["box"]
@@ -123,13 +124,13 @@ def _format_detection_report(result: dict, w: int, h: int) -> str:
         if det.get("from_gt"):
             tags.append("GT 提取")
         if det.get("inferred"):
-            tags.append("🔮 推断补全")
+            tags.append("推断补全")
         if det.get("fixed"):
-            tags.append("🔧 重叠修正")
+            tags.append("重叠修正")
         if det.get("prior_all"):
-            tags.append("📊 先验补全")
+            tags.append("先验补全")
         if not tags:
-            tags.append("✅ 正常检测")
+            tags.append("正常检测")
 
         status = " ".join(tags)
         lines.append(f"| {cn} | {conf:.3f} | {box_str} | {status} |")
@@ -143,23 +144,17 @@ def build_detection_tab(state: gr.State):
 
     with gr.Row(equal_height=False):
         with gr.Column(scale=2):
-            gr.HTML("""
-            <div style="padding:16px 20px; background:linear-gradient(135deg, #f0f9ff, #eff6ff);
-                        border-radius:12px; border:1px solid #e2e8f0; margin-bottom:8px;">
-                <h3 style="margin:0 0 4px 0; color:#1e293b; font-size:16px;">
-                    🎯 YOLO 血管检测
-                </h3>
-                <p style="margin:0; color:#64748b; font-size:13px;">
-                    在首帧上运行 YOLO 检测，识别动脉 <span style="color:#ef4444;">■</span> 和静脉 <span style="color:#22c55e;">■</span> 的边界框
-                </p>
-            </div>
-            """)
+            gr.HTML(render_page_header(
+                "YOLO 血管检测",
+                "在首帧上运行检测，生成动脉和静脉的边界框。",
+                eyebrow="Detection",
+            ))
 
-            detect_btn = gr.Button("🎯 运行检测", variant="primary", size="lg")
+            detect_btn = gr.Button("运行检测", variant="primary", size="lg")
 
-            detection_report = gr.Markdown("""
-> 💡 已固定最优 YOLO 权重（Step5 斑点噪声+平移+缩放），点击「运行检测」即可。缺失框自动补全。
-""")
+            detection_report = gr.Markdown(
+                "当前固定使用最优 YOLO 权重。若检测框缺失，系统会自动执行先验补全。"
+            )
 
         with gr.Column(scale=3):
             detection_image = gr.Image(

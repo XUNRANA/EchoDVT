@@ -266,7 +266,7 @@ def _get_model_status() -> Dict:
     status = {}
     for name, paths in checks.items():
         found = any(p.exists() for p in paths)
-        status[name] = "✅ 就绪" if found else "❌ 缺失"
+        status[name] = "就绪" if found else "缺失"
     return status
 
 
@@ -718,7 +718,7 @@ def _build_comprehensive_summary_html(comp_acc: Dict | None) -> str:
     if not comp_acc:
         return """
         <div class="dashboard-section" style="margin-top: 12px;">
-            <h3 class="section-title">🧮 统一模型概览（train + val）</h3>
+            <h3 class="section-title">统一模型概览（train + val）</h3>
             <div style="font-size:12px; color:var(--text-secondary);">
                 尚未读取到统一模型元信息。
             </div>
@@ -748,7 +748,7 @@ def _build_comprehensive_summary_html(comp_acc: Dict | None) -> str:
 
     return f"""
     <div class="dashboard-section" style="margin-top: 12px;">
-        <h3 class="section-title">🧮 统一模型概览（train + val）</h3>
+        <h3 class="section-title">统一模型概览（train + val）</h3>
         <div style="font-size:12px; color:var(--text-secondary); line-height:1.7; margin-bottom:10px;">
             分类模型：RF unified (prob &ge; {float(comp_acc.get('threshold', 0)):.2f})<br>
             说明：train / val 指标直接读取最新统一模型元信息<br>
@@ -777,10 +777,10 @@ def _build_comprehensive_summary_html(comp_acc: Dict | None) -> str:
 def _build_misclassified_html(comp_acc: Dict | None) -> str:
     return f"""
     <div class="dashboard-section" style="border-left: 3px solid var(--primary);">
-        <h3 class="section-title" style="color: var(--primary) !important;">📌 首页说明</h3>
+        <h3 class="section-title" style="color: var(--primary) !important;">首页说明</h3>
         <div style="font-size:12px; color:var(--text-secondary); line-height:1.8;">
             仪表盘当前仅展示 train / val 数据概览与最新统一模型指标。<br>
-            如需开始单案例分析，请前往「📤 数据输入」选择数据来源与案例。
+            如需开始单案例分析，请前往“数据输入”选择数据来源与案例。
         </div>
     </div>
     """
@@ -796,12 +796,12 @@ def _run_comprehensive_benchmark(state: dict):
     overall = comp.get("overall", {})
     if comp.get("ready") and int(overall.get("total", 0)) > 0:
         status = (
-            "✅ 综合评估完成："
+            "综合评估完成："
             f"准确率 {overall.get('accuracy', 0):.1%} "
             f"（{int(overall.get('correct', 0))}/{int(overall.get('total', 0))}）"
         )
     else:
-        status = "⚠️ 综合评估已刷新，但当前未读取到有效的统一模型指标。"
+        status = "综合评估已刷新，但当前未读取到有效的统一模型指标。"
     return status_html, dataset_html, error_html, chart, workflow_html, status
 
 
@@ -1320,7 +1320,7 @@ def _refresh_dashboard(state: dict):
 
     # ========== 模型状态 ==========
     model_lines = "<br>".join(f"{name}: {status}" for name, status in models.items())
-    all_ready = all("✅" in s for s in models.values())
+    all_ready = all("就绪" in s for s in models.values())
     model_html = f"""
     <div class="stat-card {'stat-card-green' if all_ready else 'stat-card-orange'}">
         <div class="stat-icon">🧠</div>
@@ -1388,7 +1388,7 @@ def build_dashboard_panel(state: gr.State):
 
     error_records = gr.HTML(elem_id="error-records")
 
-    refresh_btn = gr.Button("🔄 刷新仪表盘数据", variant="secondary", size="sm")
+    refresh_btn = gr.Button("刷新仪表盘数据", variant="secondary", size="sm")
 
     refresh_btn.click(
         fn=_refresh_dashboard,

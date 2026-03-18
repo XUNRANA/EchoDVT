@@ -18,6 +18,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from web.utils.metrics import summarize_case_metrics, compute_dvt_diagnosis, get_unified_threshold
 from web.utils.chart_style import setup_matplotlib, style_axis, get_chinese_font
+from web.utils.ui import render_page_header
 
 import matplotlib
 matplotlib.use("Agg")
@@ -28,13 +29,13 @@ from matplotlib.backends.backend_pdf import PdfPages
 def _generate_pdf_report(state: dict, progress=gr.Progress(track_tqdm=True)):
     """生成完整 PDF 报告"""
     if not state.get("frame_files"):
-        return None, "⚠️ 请先在「📤 数据输入」Tab 中加载案例"
+        return None, "请先在“数据输入”页加载案例"
 
     vein_areas = state.get("vein_areas", [])
     artery_areas = state.get("artery_areas", [])
 
     if not vein_areas:
-        return None, "⚠️ 请先完成分割和诊断后再导出报告"
+        return None, "请先完成分割和诊断后再导出报告"
 
     setup_matplotlib()
 
@@ -347,24 +348,17 @@ def build_report_tab(state: gr.State):
 
     with gr.Row(equal_height=False):
         with gr.Column(scale=2):
-            gr.HTML("""
-            <div style="padding:16px 20px; background:linear-gradient(135deg, #f0f9ff, #eff6ff);
-                        border-radius:12px; border:1px solid #e2e8f0; margin-bottom:8px;">
-                <h3 style="margin:0 0 4px 0; color:#1e293b; font-size:16px;">
-                    📄 导出完整报告
-                </h3>
-                <p style="margin:0; color:#64748b; font-size:13px;">
-                    将当前案例的检测、分割、诊断结果汇总为 PDF 报告
-                </p>
-            </div>
-            """)
+            gr.HTML(render_page_header(
+                "导出完整报告",
+                "将当前案例的检测、分割和诊断结果汇总为 PDF 报告。",
+                eyebrow="Report",
+            ))
 
-            export_btn = gr.Button("📄 生成 PDF 报告", variant="primary", size="lg")
+            export_btn = gr.Button("生成 PDF 报告", variant="primary", size="lg")
 
-            report_status = gr.Markdown("""
-> 💡 **操作指引**: 完成分割和诊断后，点击「生成 PDF 报告」导出完整分析报告。
-> 报告包含：案例信息、检测结果、面积曲线、分割指标、DVT 诊断结论。
-""")
+            report_status = gr.Markdown(
+                "完成分割和诊断后，可在此导出 PDF。报告包含案例信息、检测结果、面积曲线、分割指标和诊断结论。"
+            )
 
         with gr.Column(scale=3):
             pdf_file = gr.File(label="PDF 报告下载", file_count="single", height=200)

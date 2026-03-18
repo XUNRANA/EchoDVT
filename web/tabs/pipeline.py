@@ -17,6 +17,7 @@ from web.utils.visualization import draw_detection_boxes, overlay_masks, bgr_to_
 from web.utils.metrics import compute_frame_metrics, compute_mask_area, compute_dvt_diagnosis
 from web.utils.chart_style import setup_matplotlib, style_axis
 from web.services.inference import DEFAULT_SAM2_VARIANT, DEFAULT_LORA_WEIGHTS
+from web.utils.ui import render_empty_state, render_page_header, render_summary_card
 
 
 FIXED_USE_MFP = True
@@ -278,48 +279,30 @@ def _build_area_chart(vein_areas, artery_areas):
 def _build_summary_card(result):
     """诊断摘要大卡片"""
     if result.get("is_dvt") is None:
-        return '<div style="text-align:center; padding:20px; color:#64748b;">数据不足，无法诊断</div>'
+        return render_empty_state("数据不足", "当前案例无法完成诊断，请检查输入与分割结果。")
 
     vcr_val = result.get('area_ratio') or result.get('vcr', 0) or 0
     prob_val = result.get('probability')
     model_name = result.get('model', 'RF unified')
-    prob_str = f"RF prob = {prob_val:.3f}" if prob_val is not None else f"VCR = {vcr_val:.3f}"
+    prob_str = f"RF 概率 {prob_val:.3f}" if prob_val is not None else f"VCR {vcr_val:.3f}"
+    meta = f"置信度 {result['confidence']:.0%} · 模型 {model_name}"
 
     if result["is_dvt"]:
-        return f"""
-        <div style="text-align:center; padding:28px 20px; background:linear-gradient(135deg, rgba(220,38,38,0.12), rgba(239,68,68,0.06));
-                    border:2px solid #dc2626; border-radius:16px;">
-            <div style="font-size:52px; margin-bottom:8px;">⚠️</div>
-            <div style="font-size:24px; font-weight:800; color:#ef4444; margin-bottom:6px;">
-                DVT 疑似
-            </div>
-            <div style="font-size:14px; color:#b91c1c; margin-bottom:4px;">
-                {prob_str} &nbsp;|&nbsp; 置信度 {result['confidence']:.0%}
-            </div>
-            <div style="font-size:12px; color:#64748b; margin-top:8px; line-height:1.6;">
-                静脉面积在压缩过程中变化极小，拒绝塌陷<br>
-                <b>建议进一步临床检查</b><br>
-                <span style="font-size:11px; opacity:0.7;">模型: {model_name} &nbsp;|&nbsp; VCR = {vcr_val:.3f}</span>
-            </div>
-        </div>"""
-    else:
-        area_change = result.get('area_change_percent', (1.0 - vcr_val) * 100)
-        return f"""
-        <div style="text-align:center; padding:28px 20px; background:linear-gradient(135deg, rgba(16,185,129,0.12), rgba(34,197,94,0.06));
-                    border:2px solid #059669; border-radius:16px;">
-            <div style="font-size:52px; margin-bottom:8px;">✅</div>
-            <div style="font-size:24px; font-weight:800; color:#10b981; margin-bottom:6px;">
-                正常
-            </div>
-            <div style="font-size:14px; color:#047857; margin-bottom:4px;">
-                {prob_str} &nbsp;|&nbsp; 置信度 {result['confidence']:.0%}
-            </div>
-            <div style="font-size:12px; color:#64748b; margin-top:8px; line-height:1.6;">
-                静脉在压缩过程中正常塌陷，面积缩减 {area_change:.0f}%<br>
-                未见血栓征象<br>
-                <span style="font-size:11px; opacity:0.7;">模型: {model_name} &nbsp;|&nbsp; VCR = {vcr_val:.3f}</span>
-            </div>
-        </div>"""
+        return render_summary_card(
+            tone="danger",
+            title="DVT 疑似",
+            metric=prob_str,
+            meta=meta,
+            detail=f"静脉在压迫过程中未见正常塌陷。建议进一步临床检查。辅助指标 VCR {vcr_val:.3f}",
+        )
+    area_change = result.get('area_change_percent', (1.0 - vcr_val) * 100)
+    return render_summary_card(
+        tone="success",
+        title="正常",
+        metric=prob_str,
+        meta=meta,
+        detail=f"静脉在压迫过程中表现为正常塌陷，面积缩减 {area_change:.0f}%。辅助指标 VCR {vcr_val:.3f}",
+    )
 
 
 def _build_full_report_html(state, detections, result, features,
@@ -469,30 +452,22 @@ def build_pipeline_tab(state: gr.State):
     fixed_use_mfp = gr.State(FIXED_USE_MFP)
     fixed_confidence = gr.State(FIXED_YOLO_CONFIDENCE)
 
-    gr.HTML("""
-    <div style="padding:16px 20px; background:linear-gradient(135deg, #f0f9ff, #eff6ff);
-                border-radius:12px; border:1px solid #e2e8f0; margin-bottom:8px;">
-        <h3 style="margin:0 0 4px 0; color:#1e293b; font-size:16px;">
-            一键全流程分析
-        </h3>
-        <p style="margin:0; color:#64748b; font-size:13px;">
-            自动执行 YOLO 检测 → SAM2 分割 → 特征提取 → DVT 诊断，生成完整报告。
-            当前流程固定使用最优预设参数。
-        </p>
-    </div>
-    """)
+    gr.HTML(render_page_header(
+        "一键全流程分析",
+        "自动执行检测、分割、特征提取和 DVT 诊断，并生成完整报告。",
+        eyebrow="Pipeline",
+    ))
 
     with gr.Row(equal_height=False):
         # ========== 左栏: 参数 + 诊断摘要 ==========
         with gr.Column(scale=2):
             run_btn = gr.Button(
-                "🚀 开始全流程分析",
+                "开始全流程分析",
                 variant="primary", size="lg",
             )
 
             diagnosis_summary = gr.HTML(
-                '<div style="text-align:center; padding:24px; color:#64748b;">加载数据后点击「开始全流程分析」</div>'
-
+                render_empty_state("等待分析", "加载案例后，点击“开始全流程分析”执行完整流程。")
             )
 
             det_preview = gr.Image(label="首帧检测结果", height=280, type="numpy")
@@ -512,9 +487,10 @@ def build_pipeline_tab(state: gr.State):
 
                 with gr.Tab("完整报告"):
                     report_html = gr.HTML(
-                        '<div style="padding:20px; color:#64748b; text-align:center;">分析完成后将显示详细诊断报告</div>'
-
+                        render_empty_state("等待报告", "分析完成后，这里会展示病例摘要、检测结果和特征明细。")
                     )
+
+    gr.Markdown("当前流程固定使用最优 YOLO、SAM2 LoRA 和统一分类模型参数，不再暴露实验性配置。")
 
     # ========== 事件绑定 ==========
     run_btn.click(

@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""
-EchoDVT 超声诊断系统 — Gradio Web 应用入口 (Dashboard 版)
-
-布局: 使用 CSS Grid 实现侧边栏 + Gradio Tabs 内容区
-"""
+"""EchoDVT Web app entrypoint."""
 
 import sys
 import argparse
@@ -39,9 +35,8 @@ def build_app():
 
     theme = gr.themes.Base(
         primary_hue=gr.themes.colors.blue,
-        secondary_hue=gr.themes.colors.cyan,
+        secondary_hue=gr.themes.colors.slate,
         neutral_hue=gr.themes.colors.slate,
-        font=gr.themes.GoogleFont("Inter"),
     )
 
     # 北京时间时钟脚本 — 通过 head 参数注入，确保执行
@@ -86,17 +81,23 @@ def build_app():
 
         # ===== 顶部栏 =====
         gr.HTML(f"""
-        <div class="topbar">
-            <div class="topbar-left">
-                <span class="topbar-logo">🫀</span>
-            </div>
-            <div class="topbar-center">
-                <h1 class="topbar-title">EchoDVT — 深静脉血栓智能诊断系统</h1>
-                <span class="topbar-dot {model_status_cls}"></span>
-            </div>
-            <div class="topbar-right">
-                <div class="topbar-clock" id="beijing-clock">
-                    <span class="clock-date">加载中...</span> --:--:--
+        <div class="topbar-shell">
+            <div class="topbar">
+                <div class="topbar-brand">
+                    <span class="brand-mark" aria-hidden="true"></span>
+                    <div class="brand-copy">
+                        <div class="topbar-title">EchoDVT</div>
+                        <div class="topbar-subtitle">深静脉血栓超声辅助诊断系统</div>
+                    </div>
+                </div>
+                <div class="topbar-right">
+                    <div class="topbar-status">
+                        <span class="topbar-dot {model_status_cls}"></span>
+                        <span>{model_status}</span>
+                    </div>
+                    <div class="topbar-clock" id="beijing-clock">
+                        <span class="clock-date">加载中...</span> --:--:--
+                    </div>
                 </div>
             </div>
         </div>
@@ -115,43 +116,28 @@ def build_app():
              ">
         """)
 
-        # ===== 流水线流程可视化 =====
-        gr.HTML("""
-        <div class="pipeline-section">
-            <div class="pipeline-flow">
-                <div class="pipe-step"><div class="pipe-icon">📹</div><div class="pipe-label">超声输入</div></div>
-                <div class="pipe-arrow">→</div>
-                <div class="pipe-step"><div class="pipe-icon">🎯</div><div class="pipe-label">YOLO检测</div></div>
-                <div class="pipe-arrow">→</div>
-                <div class="pipe-step"><div class="pipe-icon">🔬</div><div class="pipe-label">SAM2分割</div></div>
-                <div class="pipe-arrow">→</div>
-                <div class="pipe-step"><div class="pipe-icon">📐</div><div class="pipe-label">特征提取</div></div>
-                <div class="pipe-arrow">→</div>
-                <div class="pipe-step"><div class="pipe-icon">🧠</div><div class="pipe-label">二分类</div></div>
-                <div class="pipe-arrow">→</div>
-                <div class="pipe-step"><div class="pipe-icon">📊</div><div class="pipe-label">可视化</div></div>
-            </div>
-        </div>
-        """)
-
-        # ===== 统计摘要行 =====
+        # ===== 全局摘要行 =====
         gr.HTML(f"""
-        <div class="stats-summary-row">
-            <div class="summary-stat-box">
-                <div class="ssb-value">{acc_str}</div>
-                <div class="ssb-label">验证准确率</div>
-            </div>
-            <div class="summary-stat-box">
-                <div class="ssb-value">{feat_dim}</div>
-                <div class="ssb-label">特征维度</div>
-            </div>
-            <div class="summary-stat-box">
-                <div class="ssb-value">{total_cases}</div>
-                <div class="ssb-label">样本量</div>
-            </div>
-            <div class="summary-stat-box">
-                <div class="ssb-value"><span class="topbar-dot {model_status_cls}" style="margin-right:6px"></span>{model_status}</div>
-                <div class="ssb-label">模型状态</div>
+        <div class="app-meta-shell">
+            <div class="app-meta-strip">
+                <div class="app-meta-item">
+                    <div class="app-meta-label">验证准确率</div>
+                    <div class="app-meta-value">{acc_str}</div>
+                </div>
+                <div class="app-meta-item">
+                    <div class="app-meta-label">特征维度</div>
+                    <div class="app-meta-value">{feat_dim}</div>
+                </div>
+                <div class="app-meta-item">
+                    <div class="app-meta-label">样本总量</div>
+                    <div class="app-meta-value">{total_cases}</div>
+                </div>
+                <div class="app-meta-item">
+                    <div class="app-meta-label">统一模型</div>
+                    <div class="app-meta-value app-meta-inline">
+                        <span class="topbar-dot {model_status_cls}"></span>{model_status}
+                    </div>
+                </div>
             </div>
         </div>
         """)
@@ -173,33 +159,26 @@ def build_app():
 
         # ===== 水平 Tabs =====
         with gr.Tabs(elem_classes=["top-tabs"]) as tabs:
-            with gr.Tab("📊 仪表盘", id="dashboard"):
+            with gr.Tab("仪表盘", id="dashboard"):
                 dash_outs = build_dashboard_panel(state)
 
-            with gr.Tab("📤 数据输入", id="upload"):
+            with gr.Tab("数据输入", id="upload"):
                 upload_handles = build_upload_tab(state)
 
-            with gr.Tab("🚀 一键分析", id="pipeline"):
+            with gr.Tab("一键分析", id="pipeline"):
                 pipeline_handles = build_pipeline_tab(state)
 
-            with gr.Tab("🎯 目标检测", id="detection"):
+            with gr.Tab("目标检测", id="detection"):
                 build_detection_tab(state)
 
-            with gr.Tab("🔬 视频分割", id="segmentation"):
+            with gr.Tab("视频分割", id="segmentation"):
                 build_segmentation_tab(state)
 
-            with gr.Tab("🩺 DVT 诊断", id="diagnosis"):
+            with gr.Tab("DVT 诊断", id="diagnosis"):
                 build_diagnosis_tab(state)
 
-            with gr.Tab("📄 导出报告", id="report"):
+            with gr.Tab("导出报告", id="report"):
                 build_report_tab(state)
-
-        # ===== 页脚 =====
-        gr.HTML("""
-        <div class="app-footer">
-            EchoDVT 智能诊断系统 &copy; 2025 &mdash; 基于 YOLO + SAM2 + RF 的超声 DVT 辅助诊断平台
-        </div>
-        """)
 
         # Dashboard 自动刷新
         (
