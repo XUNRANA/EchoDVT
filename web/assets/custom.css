@@ -282,6 +282,33 @@ main.contain,
     padding: 24px 28px 40px 28px !important;
     border: none !important;
     min-width: 0 !important;
+    overflow: hidden !important;
+}
+
+/* Force images, galleries, columns to stay within their container */
+.top-tabs > .tabitem img {
+    max-width: 100% !important;
+    height: auto !important;
+    object-fit: contain !important;
+}
+.top-tabs > .tabitem .column {
+    min-width: 0 !important;
+    overflow: hidden !important;
+}
+.top-tabs > .tabitem .row {
+    overflow: hidden !important;
+}
+.top-tabs > .tabitem .image-container,
+.top-tabs > .tabitem [data-testid="image"] {
+    overflow: hidden !important;
+    max-width: 100% !important;
+}
+.top-tabs > .tabitem .gallery {
+    overflow: hidden !important;
+    max-width: 100% !important;
+}
+.top-tabs > .tabitem .gallery .grid-container {
+    max-width: 100% !important;
 }
 
 /* ---- Compact Gradio blocks inside tab content ---- */
@@ -343,6 +370,11 @@ main.contain,
     background: transparent !important;
     border: none !important;
     box-shadow: none !important;
+    overflow-wrap: break-word !important;
+    word-break: break-word !important;
+}
+.top-tabs > .tabitem .prose code {
+    word-break: break-all !important;
 }
 
 /* Dropdown/Radio/Button blocks — keep clean */

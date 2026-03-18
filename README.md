@@ -52,11 +52,11 @@ EchoDVT/
 │   ├── prior_stats.json                # 动静脉位置先验统计
 │   └── runs/detect/.../best.pt         # YOLO 训练权重
 ├── web/                            # Gradio Web 前端（详见 web/README.md）
-│   ├── app.py                          # 应用入口
+│   ├── app.py                          # 应用入口（水平标签 + 流水线流程图 + 统计摘要）
 │   ├── services/                       # 推理服务层（单例封装）
 │   ├── tabs/                           # 7 个功能 Tab
 │   ├── utils/                          # 可视化 & 指标工具
-│   └── assets/                         # CSS 样式
+│   └── assets/custom.css              # 浅色医疗主题样式
 └── results/                        # 推理结果输出目录
 ```
 
@@ -150,22 +150,22 @@ EchoDVT/
 
 ## 6. Web 诊断平台
 
-基于 Gradio 6.x 的交互式诊断系统，7 个 Tab 覆盖完整分析流程：
+基于 Gradio 6.x 的交互式诊断系统，顶部水平标签导航，7 个 Tab 覆盖完整分析流程。页面顶部展示流水线流程图（超声输入→YOLO检测→SAM2分割→特征提取→二分类→可视化）和关键统计摘要。
 
 ```bash
 cd web
-python app.py
+python app.py --port 18081
 ```
 
 | Tab | 功能 |
 |-----|------|
-| 仪表盘 | 系统状态、综合评估指标（train+val+test 500/50）、误判案例分析 |
-| 数据输入 | 选择 val/train，或勾选 test(normal/patient)，也支持本地视频上传 |
-| YOLO 检测 | 运行 YOLO 检测，可视化动脉/静脉框 |
-| SAM2 分割 | LoRA r4/r8 + 可选 MFP，逐帧分割结果 Gallery |
-| DVT 诊断 | 21 维特征提取，面积曲线，DVT/正常判断 |
-| 定量评估 | 逐帧 Dice/mIoU 指标，最佳/最差帧标注 |
-| 一键分析 | 检测→分割→诊断全流程一键运行并生成报告 |
+| 📊 仪表盘 | GPU/模型/数据集状态、准确率概览、数据分布图表 |
+| 📤 数据输入 | 选择 val/train 案例，或上传本地视频 |
+| 🚀 一键分析 | 检测→分割→诊断全流程一键运行，含诊断报告 |
+| 🎯 目标检测 | 首帧 YOLO 检测，可视化动脉/静脉框 |
+| 🔬 视频分割 | SAM2 LoRA 分割 + 可选 MFP，逐帧 Gallery |
+| 🩺 DVT 诊断 | 21 维特征提取，面积曲线，DVT/正常判断 |
+| 📄 导出报告 | 生成并下载 PDF 诊断报告 |
 
 详见 [web/README.md](web/README.md)。
 
