@@ -18,21 +18,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from web.utils.visualization import bgr_to_rgb
-
-
-# ─── 统一 Tab 标题 HTML 模板 ───
-
-_TAB_HEADER = """
-<div style="padding:16px 20px; background:linear-gradient(135deg, {bg1}, {bg2});
-            border-radius:12px; border:1px solid #e2e8f0; margin-bottom:8px;">
-    <h3 style="margin:0 0 4px 0; color:#1e293b; font-size:16px;">
-        {icon} {title}
-    </h3>
-    <p style="margin:0; color:#64748b; font-size:13px;">
-        {desc}
-    </p>
-</div>
-"""
+from web.utils.ui import render_page_header
 
 
 def _get_dataset_root() -> Path:
@@ -134,7 +120,7 @@ def _on_case_selected(case_name: str, split: str, test_subset: str, state: dict)
     state["vein_areas"] = []
     state["artery_areas"] = []
 
-    info_md = f"""### 📋 案例信息
+    info_md = f"""### 案例信息
 | 属性 | 值 |
 |------|------|
 | **案例名** | `{case_name}` |
@@ -167,21 +153,21 @@ def _check_disk_space(path: str, min_gb: float = 1.0) -> bool:
 def _on_video_uploaded(video_path: str, state: dict):
     """处理本地上传的视频文件"""
     if not video_path:
-        return state, None, "⚠️ 请上传一个视频文件", []
+        return state, None, "请上传一个视频文件", []
 
     video_path = Path(video_path)
     if not video_path.exists():
-        return state, None, f"❌ 视频文件不存在: `{video_path}`", []
+        return state, None, f"视频文件不存在: `{video_path}`", []
 
     # ★ 检查文件大小
     file_size_mb = video_path.stat().st_size / (1024 * 1024)
     if file_size_mb > 2048:
-        return state, None, f"❌ 视频文件过大 ({file_size_mb:.0f} MB)，最大支持 2GB", []
+        return state, None, f"视频文件过大 ({file_size_mb:.0f} MB)，最大支持 2GB", []
 
     # ★ 检查磁盘空间
     tmp_base = tempfile.gettempdir()
     if not _check_disk_space(tmp_base, min_gb=1.0):
-        return state, None, "❌ 临时目录磁盘空间不足（< 1GB），请清理 /tmp 后重试", []
+        return state, None, "临时目录磁盘空间不足（< 1GB），请清理 /tmp 后重试", []
 
     # 创建临时目录存放抽帧
     tmp_dir = Path(tempfile.mkdtemp(prefix="echodvt_"))
@@ -192,7 +178,7 @@ def _on_video_uploaded(video_path: str, state: dict):
     try:
         cap = cv2.VideoCapture(str(video_path))
         if not cap.isOpened():
-            return state, None, f"❌ 无法打开视频文件，请检查格式。\n\n支持格式: MP4 / AVI / MOV / MKV", []
+            return state, None, "无法打开视频文件，请检查格式。\n\n支持格式: MP4 / AVI / MOV / MKV", []
 
         fps = cap.get(cv2.CAP_PROP_FPS)
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -201,7 +187,7 @@ def _on_video_uploaded(video_path: str, state: dict):
 
         if total_frames <= 0:
             cap.release()
-            return state, None, "❌ 无法读取视频帧数，文件可能已损坏", []
+            return state, None, "无法读取视频帧数，文件可能已损坏", []
 
         frame_files = []
         idx = 0
@@ -216,10 +202,10 @@ def _on_video_uploaded(video_path: str, state: dict):
         cap.release()
 
     except Exception as e:
-        return state, None, f"❌ 视频解析失败:\n```\n{traceback.format_exc()}\n```", []
+        return state, None, f"视频解析失败:\n```\n{traceback.format_exc()}\n```", []
 
     if not frame_files:
-        return state, None, "❌ 视频中没有提取到有效帧", []
+        return state, None, "视频中没有提取到有效帧", []
 
     # 加载首帧预览
     first_frame = cv2.imread(frame_files[0])
@@ -241,7 +227,7 @@ def _on_video_uploaded(video_path: str, state: dict):
     state["artery_areas"] = []
 
     duration = total_frames / fps if fps > 0 else 0
-    info_md = f"""### 📋 视频信息
+    info_md = f"""### 视频信息
 | 属性 | 值 |
 |------|------|
 | **文件名** | `{video_path.name}` |
@@ -286,10 +272,10 @@ def _get_dataset_counts() -> Dict[str, int]:
 def _build_dataset_selector_status_html(split: str, test_subset: str = "normal") -> str:
     counts = _get_dataset_counts()
     split_label = {
-        "train": "📚 训练集",
-        "val": "🎯 验证集",
-        "test": "🧪 测试集",
-    }.get(split, "🎯 验证集")
+        "train": "训练集",
+        "val": "验证集",
+        "test": "测试集",
+    }.get(split, "验证集")
 
     split_desc = {
         "train": f"{counts['train']} 例，全部正常，适合查看标准压缩超声序列。",
@@ -396,10 +382,10 @@ def build_upload_tab(state: gr.State):
 
     with gr.Row(equal_height=False):
         with gr.Column(scale=2):
-            gr.HTML(_TAB_HEADER.format(
-                bg1="#f0f9ff", bg2="#eff6ff",
-                icon="📤", title="数据输入",
-                desc="从数据集选择案例，或上传本地超声视频",
+            gr.HTML(render_page_header(
+                "数据输入",
+                "从数据集选择案例，或上传本地超声视频。",
+                eyebrow="Input",
             ))
 
             with gr.Tabs() as input_tabs:
@@ -422,7 +408,7 @@ def build_upload_tab(state: gr.State):
                     with gr.Row(equal_height=False, elem_classes=["dataset-entry-row"]):
                         with gr.Column(scale=1, min_width=0):
                             train_source_btn = gr.Button(
-                                "📚 训练集",
+                                "训练集",
                                 variant="secondary",
                                 elem_classes=["dataset-entry-btn"],
                             )
@@ -432,7 +418,7 @@ def build_upload_tab(state: gr.State):
 
                         with gr.Column(scale=1, min_width=0):
                             val_source_btn = gr.Button(
-                                "🎯 验证集",
+                                "验证集",
                                 variant="primary",
                                 elem_classes=["dataset-entry-btn"],
                             )
@@ -442,7 +428,7 @@ def build_upload_tab(state: gr.State):
 
                         with gr.Column(scale=1, min_width=0):
                             test_source_btn = gr.Button(
-                                "🧪 测试集",
+                                "测试集",
                                 variant="secondary",
                                 elem_classes=["dataset-entry-btn"],
                             )
@@ -469,7 +455,7 @@ def build_upload_tab(state: gr.State):
                     )
 
                     load_btn = gr.Button(
-                        "📂 加载案例",
+                        "加载案例",
                         variant="primary", size="lg",
                     )
 
@@ -481,23 +467,17 @@ def build_upload_tab(state: gr.State):
                     )
 
                     upload_btn = gr.Button(
-                        "🎬 解析视频并加载",
+                        "解析视频并加载",
                         variant="primary", size="lg",
                     )
 
-                    gr.HTML("""
-                    <div style="padding:12px; background:rgba(241,245,249,0.8); border-radius:8px;
-                                border:1px solid #e2e8f0; margin-top:4px;">
-                        <p style="color:#64748b; font-size:12px; margin:0; line-height:1.7;">
-                            📁 支持格式：MP4 / AVI / MOV / MKV（最大 2GB）<br>
-                            ⚙️ 系统将自动逐帧提取并加载到分析流程
-                        </p>
-                    </div>
-                    """)
+                    gr.Markdown(
+                        "支持 MP4 / AVI / MOV / MKV，最大 2GB。系统会自动逐帧提取并接入后续分析流程。"
+                    )
 
-            case_info = gr.Markdown("""
-> 💡 **快速开始**: 先点击上方 `train / val / test` 入口卡，再选择具体案例；也可以切换到「上传本地视频」直接加载本地超声视频。
-""")
+            case_info = gr.Markdown(
+                "建议先选择 train / val / test 入口，再选具体案例。若是新数据，可直接切换到“上传本地视频”。"
+            )
 
         with gr.Column(scale=3):
             preview_image = gr.Image(

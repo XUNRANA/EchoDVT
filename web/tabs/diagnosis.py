@@ -15,6 +15,11 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from web.utils.metrics import compute_dvt_diagnosis, get_unified_threshold
 from web.utils.chart_style import setup_matplotlib, style_axis
+from web.utils.ui import (
+    render_empty_state,
+    render_page_header,
+    render_summary_card,
+)
 
 import matplotlib
 matplotlib.use("Agg")
@@ -30,9 +35,9 @@ def _run_diagnosis(state: dict):
 
     if not vein_areas:
         return (
-            "⚠️ 请先在「🔬 SAM2 分割」Tab 中完成分割",
+            "请先完成视频分割",
             None,
-            "等待分割结果...",
+            render_empty_state("等待分割结果", "完成视频分割后，再运行当前页的诊断流程。"),
         )
 
     # 尝试使用 InferenceService 进行完整 21 维特征提取
@@ -86,9 +91,9 @@ def _run_diagnosis(state: dict):
         result["model"] = ml_result.get("model", "RF unified")
         result["vcr"] = ml_result.get("vcr", result.get("area_ratio"))
         if ml_result["is_dvt"]:
-            result["diagnosis"] = "⚠️ DVT 疑似（静脉拒绝塌陷）"
+            result["diagnosis"] = "DVT 疑似（静脉拒绝塌陷）"
         else:
-            result["diagnosis"] = "✅ 正常（静脉正常塌陷）"
+            result["diagnosis"] = "正常（静脉正常塌陷）"
 
     # 生成面积曲线图
     setup_matplotlib()
@@ -137,7 +142,7 @@ def _run_diagnosis(state: dict):
 
 def _format_diagnosis_report(result: dict, n_frames: int, features: dict = None) -> str:
     """格式化诊断报告（含完整特征表）"""
-    lines = ["### 🩺 DVT 诊断报告\n"]
+    lines = ["### DVT 诊断报告\n"]
     model_name = result.get("model", "")
     probability = result.get("probability")
 
@@ -189,40 +194,30 @@ def _diagnosis_summary_html(result: dict) -> str:
         return f'<div class="status-pending">{result["diagnosis"]}</div>'
 
     prob_val = result.get("probability")
-    metric_label = f"RF prob = {prob_val:.3f}" if prob_val is not None else f"VCR = {result.get('area_ratio', 0):.3f}"
+    vcr_val = result.get("vcr", result.get("area_ratio", 0))
+    metric_label = (
+        f"RF 概率 {prob_val:.3f}" if prob_val is not None else f"VCR {result.get('area_ratio', 0):.3f}"
+    )
+    meta = f"置信度 {result['confidence']:.0%} · 模型 {result.get('model', 'RF unified')}"
 
     if result["is_dvt"]:
-        return f"""
-        <div style="text-align:center; padding:28px 20px; background:linear-gradient(135deg, rgba(220,38,38,0.12), rgba(239,68,68,0.06));
-                    border:2px solid #dc2626; border-radius:16px; margin:8px 0;">
-            <div style="font-size:52px; margin-bottom:8px;">⚠️</div>
-            <div style="font-size:24px; font-weight:800; color:#ef4444; margin-bottom:6px;">
-                DVT 疑似
-            </div>
-            <div style="font-size:14px; color:#b91c1c; margin-bottom:4px;">
-                {metric_label} &nbsp;|&nbsp; 置信度 {result['confidence']:.0%}
-            </div>
-            <div style="font-size:12px; color:#64748b; margin-top:8px; line-height:1.6;">
-                静脉在超声压缩检查中拒绝塌陷<br>
-                <b>建议进一步临床检查</b>
-            </div>
-        </div>"""
-    else:
-        return f"""
-        <div style="text-align:center; padding:28px 20px; background:linear-gradient(135deg, rgba(16,185,129,0.12), rgba(34,197,94,0.06));
-                    border:2px solid #059669; border-radius:16px; margin:8px 0;">
-            <div style="font-size:52px; margin-bottom:8px;">✅</div>
-            <div style="font-size:24px; font-weight:800; color:#10b981; margin-bottom:6px;">
-                正常
-            </div>
-            <div style="font-size:14px; color:#047857; margin-bottom:4px;">
-                {metric_label} &nbsp;|&nbsp; 置信度 {result['confidence']:.0%}
-            </div>
-            <div style="font-size:12px; color:#64748b; margin-top:8px; line-height:1.6;">
-                静脉正常塌陷，面积缩减 {result.get('area_change_percent', 0):.0f}%<br>
-                未见血栓征象
-            </div>
-        </div>"""
+        return render_summary_card(
+            tone="danger",
+            title="DVT 疑似",
+            metric=metric_label,
+            meta=meta,
+            detail=f"静脉在压迫过程中未见正常塌陷。建议进一步临床检查。辅助指标 VCR {vcr_val:.3f}",
+        )
+    return render_summary_card(
+        tone="success",
+        title="正常",
+        metric=metric_label,
+        meta=meta,
+        detail=(
+            f"静脉在压迫过程中表现为正常塌陷，面积缩减 {result.get('area_change_percent', 0):.0f}%。"
+            f" 辅助指标 VCR {vcr_val:.3f}"
+        ),
+    )
 
 
 def build_diagnosis_tab(state: gr.State):
@@ -231,34 +226,25 @@ def build_diagnosis_tab(state: gr.State):
 
     with gr.Row(equal_height=False):
         with gr.Column(scale=2):
-            gr.HTML("""
-            <div style="padding:16px 20px; background:linear-gradient(135deg, #f0f9ff, #eff6ff);
-                        border-radius:12px; border:1px solid #e2e8f0; margin-bottom:8px;">
-                <h3 style="margin:0 0 4px 0; color:#1e293b; font-size:16px;">
-                    🩺 DVT 智能诊断
-                </h3>
-                <p style="margin:0; color:#64748b; font-size:13px;">
-                    基于 21 维时序特征的 DVT 自动评估，默认使用最新统一模型阈值
-                </p>
-            </div>
-            """)
+            gr.HTML(render_page_header(
+                "DVT 智能诊断",
+                "基于 21 维时序特征自动评估 DVT 风险，默认使用最新统一模型。",
+                eyebrow="Diagnosis",
+            ))
 
             gr.Markdown(
-                f"> 当前固定使用最新统一模型 `RF unified`，判断阈值为 `prob ≥ {unified_threshold:.2f}`。"
+                f"当前固定使用 RF unified。判断阈值为 prob >= {unified_threshold:.2f}。VCR 仅作为辅助特征展示。"
             )
 
-            diagnose_btn = gr.Button("🩺 运行诊断", variant="primary", size="lg")
+            diagnose_btn = gr.Button("运行诊断", variant="primary", size="lg")
 
-            diagnosis_html = gr.HTML("""
-            <div style="text-align:center; padding:24px; color:#64748b; border:1px dashed #cbd5e1; border-radius:12px;">
-                请先完成分割，然后点击「运行诊断」
-            </div>
-            """)
+            diagnosis_html = gr.HTML(
+                render_empty_state("等待诊断", "请先完成分割，然后在当前页运行诊断。")
+            )
 
-            diagnosis_report = gr.Markdown("""
-> 💡 **诊断原理**: 默认使用最新 `RF unified` 模型输出的 DVT 概率进行判断。
-> 当统一模型不可用时，回退到与当前阈值对齐的简单 VCR 规则。
-""")
+            diagnosis_report = gr.Markdown(
+                "默认优先显示统一模型输出的 DVT 概率。当统一模型不可用时，系统会回退到与当前阈值对齐的 VCR 规则。"
+            )
 
         with gr.Column(scale=3):
             area_plot = gr.Plot(label="面积变化曲线")
