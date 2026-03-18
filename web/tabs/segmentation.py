@@ -231,8 +231,8 @@ def build_segmentation_tab(state: gr.State):
             seg_gallery = gr.Gallery(
                 label="逐帧分割结果（采样展示）",
                 columns=5,
-                rows=3,
-                height=350,
+                rows=None,
+                height="auto",
                 object_fit="contain",
             )
 

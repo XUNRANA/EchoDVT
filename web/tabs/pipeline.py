@@ -411,75 +411,53 @@ def _build_full_report_html(state, detections, result, features,
 
     mfp_note = " + MFP" if use_mfp else ""
 
+    diag_color = '#ef4444' if result.get('is_dvt') else '#10b981'
+
     html = f"""
-    <div class="full-report">
-      <h2 style="color:#1e293b; margin:0 0 16px 0; font-size:20px; border-bottom:2px solid #e2e8f0; padding-bottom:8px;">
+    <div class="full-report" style="max-width:800px;">
+      <h2 style="color:#1e293b; margin:0 0 12px 0; font-size:18px; border-bottom:2px solid #e2e8f0; padding-bottom:6px;">
         DVT 诊断报告
       </h2>
 
-      <!-- 基本信息 -->
-      <div class="report-section">
-        <h3>1. 基本信息</h3>
-        <table class="report-table">
-          <tr><td style="width:140px;">案例</td><td><code>{case_name}</code></td></tr>
-          <tr><td>数据来源</td><td>{'本地上传视频' if from_video else f'数据集 ({state.get("split", "val")})'}</td></tr>
-          <tr><td>总帧数</td><td>{n_frames}</td></tr>
-          <tr><td>分割模型</td><td>{model_variant}{mfp_note}</td></tr>
-        </table>
+      <!-- 诊断结论 (置顶) -->
+      <div style="background:{'#fef2f2' if result.get('is_dvt') else '#ecfdf5'}; border:1px solid {'#fecaca' if result.get('is_dvt') else '#a7f3d0'};
+                  border-radius:10px; padding:14px 18px; margin-bottom:14px;">
+        <span style="font-size:16px; font-weight:800; color:{diag_color};">
+          {result.get('diagnosis', '未知')}
+        </span>
+        <span style="color:#64748b; font-size:13px; margin-left:12px;">
+          置信度 {result.get('confidence', 0):.0%} &middot; {thresh_note}
+        </span>
       </div>
 
-      <!-- 检测结果 -->
-      <div class="report-section">
-        <h3>2. YOLO 血管检测</h3>
-        <table class="report-table">
-          <tr><th>类别</th><th>置信度</th><th>位置</th><th>状态</th></tr>
-          {det_rows}
-        </table>
-      </div>
+      <!-- 基本信息 + 面积统计 -->
+      <table class="report-table" style="margin-bottom:12px;">
+        <tr><td style="width:130px;">案例</td><td><code>{case_name}</code></td>
+            <td style="width:130px;">总帧数</td><td>{n_frames}</td></tr>
+        <tr><td>数据来源</td><td>{'上传视频' if from_video else f'数据集 ({state.get("split", "val")})'}</td>
+            <td>分割模型</td><td>{model_variant}{mfp_note}</td></tr>
+        <tr><td>VCR</td><td>{result.get('area_ratio', 0):.4f}</td>
+            <td>面积缩减</td><td>{result.get('area_change_percent', 0):.1f}%</td></tr>
+      </table>
+
+      <!-- YOLO 检测 -->
+      <table class="report-table" style="margin-bottom:12px;">
+        <tr><th>类别</th><th>置信度</th><th>位置</th><th>状态</th></tr>
+        {det_rows}
+      </table>
 
       <!-- 分割指标 -->
-      <div class="report-section">
-        <h3>3. 分割质量评估</h3>
-        {seg_summary}
-      </div>
+      {seg_summary}
 
-      <!-- 面积统计 -->
-      <div class="report-section">
-        <h3>4. 面积统计</h3>
-        <table class="report-table">
-          <tr><td>静脉最大面积</td><td>{result.get('max_area', 'N/A')} px</td></tr>
-          <tr><td>静脉最小面积</td><td>{result.get('min_area', 'N/A')} px</td></tr>
-          <tr><td>面积变化率 (VCR)</td><td>{result.get('area_ratio', 0):.4f}</td></tr>
-          <tr><td>面积缩减百分比</td><td>{result.get('area_change_percent', 0):.1f}%</td></tr>
-        </table>
-      </div>
-
-      <!-- 21维特征 -->
-      <div class="report-section">
-        <h3>5. 时序特征分析 (21维)</h3>
-        {'<table class="report-table"><tr><th>特征</th><th>值</th><th>说明</th></tr>' + feat_rows + '</table>' if feat_rows else '<p style="color:#64748b;">特征提取不可用</p>'}
-      </div>
-
-      <!-- 诊断结论 -->
-      <div class="report-section">
-        <h3>6. 诊断结论</h3>
-        <table class="report-table">
-          <tr><td>判断依据</td><td>{thresh_note}</td></tr>
-          <tr><td>置信度</td><td>{result.get('confidence', 0):.0%}</td></tr>
-          <tr><td style="font-weight:700;">结果</td>
-              <td style="font-weight:700; color:{'#ef4444' if result.get('is_dvt') else '#10b981'};">
-                {result.get('diagnosis', '未知')}
-              </td></tr>
-        </table>
-        <div style="background:#f8fafc; padding:12px 16px; border-radius:8px; margin-top:8px;
-                    border-left:3px solid #3b82f6;">
-          <p style="color:#64748b; font-size:12px; margin:0; line-height:1.7;">
-            <b>诊断原理</b>：在压缩超声检查中，正常静脉会被探头压瘪（面积大幅缩小 → VCR 接近 0），
-            而有血栓的静脉拒绝塌陷（面积基本不变 → VCR 接近 1）。<br>
-            本系统优先使用 `RF unified` 的概率阈值进行判断；统一模型不可用时，回退到同阈值对齐的简单 VCR 规则。
-          </p>
+      <!-- 21维特征 (折叠) -->
+      <details style="margin-top:12px; border:1px solid #e2e8f0; border-radius:8px; padding:0;">
+        <summary style="padding:10px 14px; cursor:pointer; font-weight:700; font-size:14px; color:#475569; background:#f8fafc; border-radius:8px;">
+          21 维时序特征明细（点击展开）
+        </summary>
+        <div style="padding:8px 14px;">
+          {'<table class="report-table"><tr><th>特征</th><th>值</th><th>说明</th></tr>' + feat_rows + '</table>' if feat_rows else '<p style="color:#64748b;">特征提取不可用</p>'}
         </div>
-      </div>
+      </details>
     </div>
     """
     return html
@@ -525,7 +503,7 @@ def build_pipeline_tab(state: gr.State):
                 with gr.Tab("分割结果"):
                     seg_gallery = gr.Gallery(
                         label="逐帧分割可视化",
-                        columns=4, rows=3, height=420,
+                        columns=4, rows=None, height="auto",
                         object_fit="contain",
                     )
 

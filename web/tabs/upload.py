@@ -496,7 +496,7 @@ def build_upload_tab(state: gr.State):
 
             frame_gallery = gr.Gallery(
                 label="帧序列预览（均匀采样）",
-                columns=6, rows=2, height=200,
+                columns=6, rows=None, height="auto",
                 object_fit="contain",
             )
 
