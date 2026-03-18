@@ -72,7 +72,7 @@ class LoRASAM2VideoSegmenter:
     LoRA 微调后的 SAM2 视频分割器
 
     与 SAM2MemoryVideoSegmenter 结构一致，
-    区别是加载 LoRA 权重，AM/SM/AV 全部关闭。
+    区别是加载 LoRA 权重，并保持当前主线的首帧 prompt + memory propagation 结构。
     """
 
     def __init__(

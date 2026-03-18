@@ -2,6 +2,62 @@
 
 基于 YOLOv8 的超声图像动脉/静脉目标检测，为 SAM2 分割提供首帧 box prompt。
 
+## 当前主线配置
+
+当前 Web 与主线推理固定使用以下 YOLO 配置：
+
+| 项目 | 当前值 |
+|------|--------|
+| 默认权重 | `runs/detect/runs/detect/dvt_runs/aug_step5_speckle_translate_scale/weights/best.pt` |
+| 默认先验 | `prior_stats.json` |
+| 首帧检测阈值 | `conf = 0.1` |
+| 兜底重试阈值 | `conf = 0.01` |
+| 用途 | 为 SAM2 提供首帧 artery / vein box prompt |
+
+> 说明：训练脚本中 `project='runs/detect/dvt_runs'`，当前实际产物落盘路径包含一层重复的 `runs/detect`。README 统一以当前仓库内真实路径为准。
+
+## 当前指标口径
+
+这里有两类指标，不能混写成同一种“准确率”：
+
+- `训练日志指标`：YOLO 标准检测指标，来自 `results.csv`
+- `首帧病例成功率`：对每个病例首帧 `00000.jpg` 计算 artery / vein 的 `IoU >= 0.5` 是否成功，包含先验补全和重叠修正后的最终输出
+
+### 1. 训练日志指标
+
+当前最优 run 为 `aug_step5_speckle_translate_scale`。
+
+基于 `runs/detect/runs/detect/dvt_runs/aug_step5_speckle_translate_scale/results.csv`：
+
+| 口径 | Precision | Recall | mAP50 | mAP50-95 |
+|------|-----------|--------|-------|----------|
+| 最终 epoch 50 | `86.1%` | `81.6%` | `85.8%` | `56.0%` |
+| 最佳 mAP50 epoch 29 | `82.9%` | `83.1%` | `86.2%` | `54.4%` |
+
+### 2. 首帧病例成功率
+
+基于当前 `inference.py` 配置、`conf=0.1`、先验补全开启，对每个病例首帧做评估：
+
+| 划分 | 病例数 | Artery 成功率 | Vein 成功率 | 两类同时成功率 |
+|------|--------|---------------|-------------|----------------|
+| train | `300` | `100.0%` | `100.0%` | `100.0%` |
+| val | `76` | `90.8%` | `90.8%` | `85.5%` |
+
+对应的首帧平均 IoU 为：
+
+| 划分 | Artery mIoU | Vein mIoU |
+|------|-------------|-----------|
+| train | `0.9303` | `0.9330` |
+| val | `0.7788` | `0.7759` |
+
+在 `val` 首帧上，先验和后处理的触发比例为：
+
+- 动脉由先验补全：`3.9%`
+- 静脉由先验补全：`2.6%`
+- 重叠修正触发：`6.6%`
+
+这组“首帧病例成功率”才更接近 Web 与 SAM2 实际收到的 prompt 质量。
+
 ## 核心创新
 
 ### 创新 1: 基于先验统计的检测框自动补全
@@ -142,13 +198,19 @@ yolo/
 │   ├── train/images/ + labels/             # 训练集 (YOLO 格式)
 │   └── val/images/ + labels/               # 验证集
 │
-└── runs/detect/dvt_runs/               # 训练结果
+└── runs/detect/runs/detect/dvt_runs/   # 当前仓库中的实际训练产物目录
     ├── aug_step1_baseline/                 # 各步骤权重 + 日志
     ├── aug_step2_translate/
     ├── aug_step3_translate_scale/
     ├── aug_step4_translate0.1_scale0.1/
     └── aug_step5_speckle_translate_scale/  # 最优模型
         └── weights/best.pt
+```
+
+当前仓库内实际最优权重路径为：
+
+```text
+yolo/runs/detect/runs/detect/dvt_runs/aug_step5_speckle_translate_scale/weights/best.pt
 ```
 
 ## 使用方法
@@ -170,7 +232,7 @@ python train_5_speckle_translate_scale.py
 ```bash
 cd yolo
 python inference.py \
-  --weights runs/detect/dvt_runs/aug_step5_speckle_translate_scale/weights/best.pt \
+  --weights runs/detect/runs/detect/dvt_runs/aug_step5_speckle_translate_scale/weights/best.pt \
   --split val --conf 0.1
 ```
 

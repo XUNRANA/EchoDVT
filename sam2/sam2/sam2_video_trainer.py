@@ -5,7 +5,7 @@ SAM2VideoTrainer - 支持训练的SAM2视频预测器
 1. 继承SAM2VideoPredictor
 2. 重写关键方法，移除@torch.inference_mode()装饰器
 3. 添加训练模式支持 (允许梯度计算)
-4. 复用所有自适应记忆模块
+4. 保持与当前预测器主线接口一致
 """
 
 import torch
@@ -120,19 +120,6 @@ class SAM2VideoTrainer(SAM2VideoPredictor):
         inference_state["output_dict_per_obj"] = {}
         inference_state["temp_output_dict_per_obj"] = {}
         inference_state["frames_tracked_per_obj"] = {}
-
-        # Adaptive Memory State
-        inference_state["use_adaptive_memory"] = self.use_adaptive_memory
-        inference_state["use_separate_memory"] = self.use_separate_memory
-        inference_state["prev_frame_outputs_per_obj"] = {}
-
-        if self.use_separate_memory:
-            from sam2.adaptive_memory import SeparateMemoryBank
-            inference_state["separate_memory_banks"] = SeparateMemoryBank()
-        else:
-            inference_state["separate_memory_banks"] = None
-
-        inference_state["quality_scores_per_obj"] = {}
 
         # Warm up backbone (这部分可以不计算梯度)
         with torch.no_grad():
@@ -687,10 +674,7 @@ def build_sam2_video_trainer(
     device="cuda",
     hydra_overrides_extra=[],
     apply_postprocessing=True,
-    use_adaptive_memory=False,
-    use_separate_memory=False,
     memory_quality_config=None,
-    use_av_constraint=False,
 ):
     """
     构建SAM2VideoTrainer (支持训练的视频预测器)
@@ -707,10 +691,7 @@ def build_sam2_video_trainer(
         mode="eval",  # 先用eval模式构建，之后切换为train
         hydra_overrides_extra=hydra_overrides_extra,
         apply_postprocessing=apply_postprocessing,
-        use_adaptive_memory=use_adaptive_memory,
-        use_separate_memory=use_separate_memory,
         memory_quality_config=memory_quality_config,
-        use_av_constraint=use_av_constraint,
     )
 
     # 转换为trainer并设置为训练模式
