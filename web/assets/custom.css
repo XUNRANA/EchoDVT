@@ -216,9 +216,49 @@ main.contain,
     grid-column: 2 !important;
     min-width: 0 !important;
     background: var(--bg-base) !important;
-    padding: 28px 40px !important;
-    overflow-y: auto !important;
+    padding: 20px 28px 40px 28px !important;
     border: none !important;
+    align-self: start !important;
+}
+
+/* ---- Compact Gradio blocks inside tab content ---- */
+.sidebar-tabs > .tabitem .block {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+}
+
+/* Re-apply card styling only to explicit form components */
+.sidebar-tabs > .tabitem .block:has(> img),
+.sidebar-tabs > .tabitem .block:has(> canvas),
+.sidebar-tabs > .tabitem .block:has(> video),
+.sidebar-tabs > .tabitem .image-container,
+.sidebar-tabs > .tabitem [data-testid="image"],
+.sidebar-tabs > .tabitem .gallery,
+.sidebar-tabs > .tabitem .plot-container,
+.sidebar-tabs > .tabitem .table-wrap,
+.sidebar-tabs > .tabitem .upload-container {
+    background: var(--bg-card) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-md) !important;
+    box-shadow: var(--shadow-sm) !important;
+}
+
+/* Reduce gap between Gradio rows/columns inside tabs */
+.sidebar-tabs > .tabitem .row {
+    gap: 20px !important;
+}
+.sidebar-tabs > .tabitem .column {
+    gap: 8px !important;
+}
+
+/* Gradio default block gap override */
+.sidebar-tabs > .tabitem .block + .block,
+.sidebar-tabs > .tabitem .form > .block {
+    margin-top: 6px !important;
 }
 
 /* ============================
@@ -430,7 +470,9 @@ button.secondary:hover {
 /* ============================
    GRADIO BLOCKS OVERRIDES
    ============================ */
-.block {
+/* Only style top-level app blocks, not every nested wrapper */
+.gradio-container > .main > .wrap > .block,
+.block.padded {
     background: var(--bg-card) !important;
     border: 1px solid var(--border) !important;
     border-radius: var(--radius-md) !important;
@@ -592,6 +634,35 @@ label, .label-wrap span { color: var(--text-secondary) !important; font-weight: 
     box-shadow: 0 2px 8px rgba(37,99,235,0.3) !important;
 }
 
+/* Inner sub-tabs (pipeline results) need card look */
+.sidebar-tabs > .tabitem .tabs:not(.sidebar-tabs) {
+    background: var(--bg-card) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-md) !important;
+    box-shadow: var(--shadow-sm) !important;
+}
+
+/* Image/Gallery/Plot components need their card styling back */
+.sidebar-tabs > .tabitem [class*="image"] > .image-container,
+.sidebar-tabs > .tabitem .gallery-container {
+    border-radius: var(--radius-md) !important;
+}
+
+/* Markdown blocks inside tabs — no card needed */
+.sidebar-tabs > .tabitem .prose {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+/* Dropdown/Radio/Button blocks — keep clean */
+.sidebar-tabs > .tabitem .block:has(select),
+.sidebar-tabs > .tabitem .block:has(input[type="radio"]) {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
 @media (max-width: 1100px) {
     .topbar {
         padding: 0 16px !important;
@@ -679,4 +750,9 @@ label, .label-wrap span { color: var(--text-secondary) !important; font-weight: 
 }
 
 /* Footer */
-footer { border-top: 1px solid var(--border) !important; }
+footer {
+    border-top: 1px solid var(--border) !important;
+    padding: 8px 0 !important;
+    opacity: 0.5;
+}
+footer:hover { opacity: 1; }

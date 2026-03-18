@@ -3,7 +3,6 @@ Dashboard 首页模块
 - 系统状态卡片（GPU / 内存 / 模型状态）
 - 数据集统计卡片（train / val）
 - train / val 统一模型指标概览
-- 当前流程进度状态（已加载/检测/分割/诊断/评估）
 - 数据集分布图表
 """
 
@@ -727,17 +726,23 @@ def _build_comprehensive_summary_html(comp_acc: Dict | None) -> str:
         """
 
     splits = comp_acc.get("splits", {})
+    splits["overall"] = comp_acc.get("overall", {})
 
     def _row(split_key: str, title: str) -> str:
         data = splits.get(split_key, {})
+        _tp = int(data.get("tp", 0))
+        _fn = int(data.get("fn", 0))
+        _tn = int(data.get("tn", 0))
+        _fp = int(data.get("fp", 0))
+        _patient_acc = f"{_tp / (_tp + _fn):.1%}" if (_tp + _fn) > 0 else "—"
+        _normal_acc = f"{_tn / (_tn + _fp):.1%}" if (_tn + _fp) > 0 else "—"
         return (
             f"<tr>"
             f"<td><strong>{title}</strong></td>"
             f"<td>{int(data.get('correct', 0))}/{int(data.get('total', 0))}</td>"
             f"<td>{data.get('accuracy', 0):.1%}</td>"
-            f"<td>{data.get('precision', 0):.1%}</td>"
-            f"<td>{data.get('recall', 0):.1%}</td>"
-            f"<td>{data.get('f1', 0):.3f}</td>"
+            f"<td>{_patient_acc}</td>"
+            f"<td>{_normal_acc}</td>"
             f"</tr>"
         )
 
@@ -755,22 +760,14 @@ def _build_comprehensive_summary_html(comp_acc: Dict | None) -> str:
                     <th>数据集</th>
                     <th>正确/总数</th>
                     <th>准确率</th>
-                    <th>精确率</th>
-                    <th>召回率</th>
-                    <th>F1</th>
+                    <th>患者正确率</th>
+                    <th>正常人正确率</th>
                 </tr>
             </thead>
             <tbody>
                 {_row('train', 'train')}
                 {_row('val', 'val')}
-                <tr>
-                    <td><strong>train + val</strong></td>
-                    <td>{int(comp_acc.get('overall', {}).get('correct', 0))}/{int(comp_acc.get('overall', {}).get('total', 0))}</td>
-                    <td>{comp_acc.get('overall', {}).get('accuracy', 0):.1%}</td>
-                    <td>{comp_acc.get('overall', {}).get('precision', 0):.1%}</td>
-                    <td>{comp_acc.get('overall', {}).get('recall', 0):.1%}</td>
-                    <td>{comp_acc.get('overall', {}).get('f1', 0):.3f}</td>
-                </tr>
+                {_row('overall', 'train + val')}
             </tbody>
         </table>
     </div>
@@ -1116,170 +1113,6 @@ def _get_cached_test_accuracy() -> Dict | None:
     return None
 
 
-# ─── Dashboard 快捷联动 ───
-
-def _build_workflow_status_html(state: Optional[dict]) -> str:
-    """构建当前案例流程状态卡片"""
-    state = state or {}
-    case_name = state.get("current_case") or "未加载"
-    split = state.get("split") or ("upload" if state.get("from_video") else "—")
-    frame_count = len(state.get("frame_files") or [])
-
-    detections = state.get("detections") or {}
-    detect_ready = detections.get("artery") is not None and detections.get("vein") is not None
-    seg_ready = bool(state.get("pred_masks"))
-    diag_ready = bool(state.get("vein_areas"))
-    eval_ready = bool(state.get("frame_metrics"))
-    load_ready = frame_count > 0
-
-    if not load_ready:
-        next_step = "请先在「📤 数据输入」中加载案例。"
-    elif not detect_ready:
-        next_step = "下一步建议：运行「🎯 目标检测」。"
-    elif not seg_ready:
-        next_step = "下一步建议：运行「🔬 视频分割」。"
-    elif not diag_ready:
-        next_step = "下一步建议：运行「🩺 DVT 诊断」。"
-    elif not eval_ready:
-        next_step = "下一步建议：运行「📈 定量评估」。"
-    else:
-        next_step = "✅ 当前案例流程已完整跑通。"
-
-    def _badge(ok: bool, text: str) -> str:
-        badge_cls = "badge-success" if ok else "badge-warning"
-        icon = "✅" if ok else "⏳"
-        return f'<span class="badge {badge_cls}" style="margin-right:6px; margin-bottom:6px;">{icon} {text}</span>'
-
-    return f"""
-    <div class="dashboard-section" id="workflow-status-card" style="margin-top: 16px;">
-        <h3 class="section-title">🧭 当前流程状态</h3>
-        <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 10px;">
-            <b>案例</b>: <code>{case_name}</code> &nbsp;|&nbsp;
-            <b>来源</b>: {split} &nbsp;|&nbsp;
-            <b>帧数</b>: {frame_count}
-        </div>
-        <div style="display:flex; flex-wrap:wrap; margin-bottom:10px;">
-            {_badge(load_ready, "数据输入")}
-            {_badge(detect_ready, "目标检测")}
-            {_badge(seg_ready, "视频分割")}
-            {_badge(diag_ready, "DVT 诊断")}
-            {_badge(eval_ready, "定量评估")}
-        </div>
-        <div style="font-size: 12px; color: var(--text-muted);">{next_step}</div>
-    </div>
-    """
-
-
-def _quick_load_next_val_case(state: dict):
-    """自动加载下一个验证集案例，并切换到数据输入页"""
-    from web.tabs.upload import _get_dataset_selector_updates, _list_cases, _on_case_selected
-
-    val_cases = _list_cases("val")
-    if not val_cases:
-        msg = "⚠️ 验证集为空，无法自动加载案例。"
-        (
-            split_update,
-            case_update,
-            subset_update,
-            train_btn_update,
-            val_btn_update,
-            test_btn_update,
-            selector_status,
-        ) = _get_dataset_selector_updates("val", "normal")
-        return (
-            state,
-            split_update,
-            case_update,
-            None,
-            msg,
-            [],
-            msg,
-            _build_workflow_status_html(state),
-            gr.Tabs(selected="upload"),
-            subset_update,
-            train_btn_update,
-            val_btn_update,
-            test_btn_update,
-            selector_status,
-        )
-
-    current = state.get("current_case")
-    if current in val_cases:
-        next_idx = (val_cases.index(current) + 1) % len(val_cases)
-    else:
-        next_idx = 0
-    next_case = val_cases[next_idx]
-
-    new_state, preview, info_md, gallery = _on_case_selected(next_case, "val", "normal", state)
-    status = f"✅ 已自动加载验证集案例 `{next_case}`，请继续检测或一键分析。"
-    (
-        split_update,
-        case_update,
-        subset_update,
-        train_btn_update,
-        val_btn_update,
-        test_btn_update,
-        selector_status,
-    ) = _get_dataset_selector_updates("val", "normal", selected_case=next_case)
-
-    return (
-        new_state,
-        split_update,
-        case_update,
-        preview,
-        info_md,
-        gallery,
-        status,
-        _build_workflow_status_html(new_state),
-        gr.Tabs(selected="upload"),
-        subset_update,
-        train_btn_update,
-        val_btn_update,
-        test_btn_update,
-        selector_status,
-    )
-
-
-def _quick_run_pipeline_from_dashboard(state: dict):
-    """使用固定最优参数运行全流程，并切换到一键分析页查看结果"""
-    if not state.get("frame_files"):
-        msg = "⚠️ 请先加载案例，再执行全流程分析。"
-        return (
-            state,
-            gr.update(),
-            gr.update(),
-            gr.update(),
-            gr.update(),
-            gr.update(),
-            msg,
-            _build_workflow_status_html(state),
-            gr.Tabs(selected="upload"),
-        )
-
-    from web.tabs.pipeline import _run_full_pipeline
-
-    new_state, det_vis, gallery_images, area_fig, report_html, summary_html = _run_full_pipeline(
-        state=state,
-        model_variant=DEFAULT_SAM2_VARIANT,
-        use_mfp=True,
-        conf_threshold=0.1,
-    )
-    case_name = new_state.get("current_case", "Unknown")
-    status = f"✅ 案例 `{case_name}` 全流程分析完成（固定最优 {DEFAULT_SAM2_VARIANT}）。"
-
-    return (
-        new_state,
-        det_vis,
-        gallery_images,
-        area_fig,
-        report_html,
-        summary_html,
-        status,
-        _build_workflow_status_html(new_state),
-        gr.Tabs(selected="pipeline"),
-    )
-
-
 # ─── 准确率展示 HTML ───
 
 def _build_accuracy_html(
@@ -1291,10 +1124,12 @@ def _build_accuracy_html(
     train_acc = (comprehensive_acc or {}).get("splits", {}).get("train", {}) if comprehensive_acc else {}
 
     train_pct = f"{train_acc.get('accuracy', 0):.1%}" if train_acc.get("total", 0) > 0 else "—"
+    _t_tn = int(train_acc.get("tn", 0))
+    _t_fp = int(train_acc.get("fp", 0))
+    _t_normal_acc = _t_tn / (_t_tn + _t_fp) if (_t_tn + _t_fp) > 0 else 0
     train_detail = (
         f"正确 {int(train_acc.get('correct', 0))}/{int(train_acc.get('total', 0))}<br>"
-        f"精确率 {train_acc.get('precision', 0):.1%} / 召回率 {train_acc.get('recall', 0):.1%}<br>"
-        f"F1 = {train_acc.get('f1', 0):.3f}"
+        f"正常人正确率 {_t_normal_acc:.1%}（全部为正常案例）"
         if train_acc.get("total", 0) > 0
         else "计算中..."
     )
@@ -1309,10 +1144,15 @@ def _build_accuracy_html(
     </div>"""
 
     val_pct = f"{val_acc['accuracy']:.1%}" if val_acc.get("total", 0) > 0 else "—"
+    _v_tp = int(val_acc.get("tp", 0))
+    _v_fn = int(val_acc.get("fn", 0))
+    _v_tn = int(val_acc.get("tn", 0))
+    _v_fp = int(val_acc.get("fp", 0))
+    _v_patient_acc = _v_tp / (_v_tp + _v_fn) if (_v_tp + _v_fn) > 0 else 0
+    _v_normal_acc = _v_tn / (_v_tn + _v_fp) if (_v_tn + _v_fp) > 0 else 0
     val_detail = (
         f"正确 {val_acc['correct']}/{val_acc['total']}<br>"
-        f"精确率 {val_acc.get('precision', 0):.1%} / 召回率 {val_acc.get('recall', 0):.1%}<br>"
-        f"F1 = {val_acc.get('f1', 0):.3f}"
+        f"患者正确率 {_v_patient_acc:.1%} / 正常人正确率 {_v_normal_acc:.1%}"
         if val_acc.get("total", 0) > 0
         else "计算中..."
     )
@@ -1329,10 +1169,15 @@ def _build_accuracy_html(
     comp_data = (comprehensive_acc or {}).get("overall", {}) if comprehensive_acc else {}
     if comprehensive_acc and int(comp_data.get("total", 0)) > 0:
         comp_pct = f"{comp_data.get('accuracy', 0):.1%}"
+        _c_tp = int(comp_data.get("tp", 0))
+        _c_fn = int(comp_data.get("fn", 0))
+        _c_tn = int(comp_data.get("tn", 0))
+        _c_fp = int(comp_data.get("fp", 0))
+        _c_patient_acc = _c_tp / (_c_tp + _c_fn) if (_c_tp + _c_fn) > 0 else 0
+        _c_normal_acc = _c_tn / (_c_tn + _c_fp) if (_c_tn + _c_fp) > 0 else 0
         comp_detail = (
             f"正确 {int(comp_data.get('correct', 0))}/{int(comp_data.get('total', 0))}<br>"
-            f"精确率 {comp_data.get('precision', 0):.1%} / 召回率 {comp_data.get('recall', 0):.1%}<br>"
-            f"F1 = {comp_data.get('f1', 0):.3f}<br>"
+            f"患者正确率 {_c_patient_acc:.1%} / 正常人正确率 {_c_normal_acc:.1%}<br>"
             f"train + val 汇总"
         )
         comp_color = "green" if comp_data.get("accuracy", 0) >= 0.8 else "orange"
@@ -1524,9 +1369,7 @@ def _refresh_dashboard(state: dict):
         val_acc=val_acc,
         comprehensive_acc=comprehensive_acc,
     )
-    workflow_html = _build_workflow_status_html(state)
-
-    return status_html, dataset_html, error_html, chart, workflow_html
+    return status_html, dataset_html, error_html, chart
 
 
 def build_dashboard_panel(state: gr.State):
@@ -1541,25 +1384,7 @@ def build_dashboard_panel(state: gr.State):
     </div>
     """)
 
-    with gr.Row(equal_height=False):
-        with gr.Column(scale=3):
-            status_cards = gr.HTML(elem_id="status-cards")
-
-        with gr.Column(scale=2):
-            gr.HTML("""
-            <div class="dashboard-section dashboard-actions-panel">
-                <h3 class="section-title">⚡ 快速开始</h3>
-                <p class="dashboard-muted-copy">先自动加载一个验证集案例，再继续一键分析或分步查看。</p>
-            """)
-            quick_load_btn = gr.Button("📂 自动加载下一个验证集案例", variant="secondary")
-            quick_analyze_btn = gr.Button("🚀 运行全流程分析", variant="primary")
-            quick_action_status = gr.Markdown(
-                "> 💡 仪表盘默认展示最新统一模型的 train / val 指标；点击上方按钮即可开始案例分析。"
-            )
-            gr.HTML("</div>")
-
-            workflow_status = gr.HTML(elem_id="workflow-status")
-
+    status_cards = gr.HTML(elem_id="status-cards")
     dataset_cards = gr.HTML(elem_id="dataset-cards")
     distribution_chart = gr.Plot(label="train / val 数据概览")
 
@@ -1570,7 +1395,7 @@ def build_dashboard_panel(state: gr.State):
     refresh_btn.click(
         fn=_refresh_dashboard,
         inputs=[state],
-        outputs=[status_cards, dataset_cards, error_records, distribution_chart, workflow_status],
+        outputs=[status_cards, dataset_cards, error_records, distribution_chart],
     )
 
     return (
@@ -1578,9 +1403,5 @@ def build_dashboard_panel(state: gr.State):
         dataset_cards,
         error_records,
         distribution_chart,
-        workflow_status,
         refresh_btn,
-        quick_load_btn,
-        quick_analyze_btn,
-        quick_action_status,
     )

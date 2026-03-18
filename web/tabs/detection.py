@@ -165,7 +165,7 @@ def build_detection_tab(state: gr.State):
         with gr.Column(scale=3):
             detection_image = gr.Image(
                 label="首帧检测结果（红色=动脉，绿色=静脉）",
-                height=500,
+                height=400,
                 type="numpy",
             )
 
