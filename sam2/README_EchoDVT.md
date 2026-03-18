@@ -17,7 +17,8 @@
 
 ## 新增文件清单
 
-以下文件为**本项目原创**，官方 SAM2 仓库中不存在：
+以下文件为**本项目原创**，官方 SAM2 仓库中不存在。
+需要特别说明的是：V1 的 adaptive-memory / AM-SM-AV 支线已经彻底移除，不属于当前支持链路。当前主线只保留 LoRA + MFP + RPA。
 
 ```
 sam2/
@@ -32,8 +33,7 @@ sam2/
     ├── lora_sam2.py           # [新增] LoRA 注入实现
     ├── postprocess.py         # [新增] MFP 多帧提示 + RPA 位置锚定
     ├── dvt_dataset.py         # [新增] DVT 超声视频 Dataset
-    ├── sam2_video_trainer.py   # [新增] 支持训练的 VideoPredictor
-    └── adaptive_memory.py     # [已移除] V1 AM/SM/AV（与 LoRA 冲突）
+    └── sam2_video_trainer.py   # [新增] 支持训练的 VideoPredictor
 ```
 
 官方文件保持不变：`build_sam.py`、`sam2_video_predictor.py`、`sam2_image_predictor.py` 等。
@@ -270,7 +270,7 @@ loss = dice_loss(pred_logits, target) + sigmoid_focal_loss(pred_logits, target)
 为 SAM2 提供统一的推理入口，包含：
 
 - `VesselDetector`：YOLO 检测封装，含先验补全、重叠修正、质量门控（详见 [yolo/README.md](../yolo/README.md)）
-- `SAM2MemoryVideoSegmenter`：Baseline SAM2 推理封装，支持 AM/SM/AV 变体标志
+- `SAM2MemoryVideoSegmenter`：Baseline SAM2 推理封装，服务首帧 prompt + memory propagation 主线
 - 完整评估流程：逐帧 Dice/mIoU → CSV 导出 → JSON 汇总 → PNG 可视化
 
 ---
@@ -297,7 +297,6 @@ sam2/
 │   ├── postprocess.py                    # [新增] MFP + RPA
 │   ├── dvt_dataset.py                    # [新增] DVT Dataset
 │   ├── sam2_video_trainer.py             # [新增] 训练 Predictor
-│   ├── adaptive_memory.py               # [已移除] V1 AM/SM/AV
 │   ├── build_sam.py                      # [官方] 模型构建
 │   ├── sam2_video_predictor.py           # [官方] 推理 Predictor
 │   ├── sam2_image_predictor.py           # [官方] 图像 Predictor
