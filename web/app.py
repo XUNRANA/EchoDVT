@@ -16,17 +16,12 @@ sys.path.insert(0, str(PROJECT_ROOT / "yolo"))
 
 import gradio as gr
 
-from tabs.dashboard import (
-    build_dashboard_panel,
-    _refresh_dashboard,
-    _quick_load_next_val_case,
-    _quick_run_pipeline_from_dashboard,
-)
+from tabs.dashboard import build_dashboard_panel, _refresh_dashboard
 from tabs.upload import build_upload_tab
 from tabs.detection import build_detection_tab
 from tabs.segmentation import build_segmentation_tab
 from tabs.diagnosis import build_diagnosis_tab
-from tabs.evaluation import build_evaluation_tab
+from tabs.evaluation import build_report_tab
 from tabs.pipeline import build_pipeline_tab
 
 
@@ -136,8 +131,8 @@ def build_app():
             with gr.Tab("🩺 DVT 诊断", id="diagnosis", elem_classes=["sidebar-tab-item"]):
                 build_diagnosis_tab(state)
 
-            with gr.Tab("📈 定量评估", id="evaluation", elem_classes=["sidebar-tab-item"]):
-                build_evaluation_tab(state)
+            with gr.Tab("📄 导出报告", id="report", elem_classes=["sidebar-tab-item"]):
+                build_report_tab(state)
 
         # Dashboard 自动刷新
         (
@@ -145,53 +140,12 @@ def build_app():
             dash_dataset,
             dash_errors,
             dash_chart,
-            dash_workflow,
             dash_refresh,
-            dash_quick_load_btn,
-            dash_quick_analyze_btn,
-            dash_quick_status,
         ) = dash_outs
         app.load(
             fn=_refresh_dashboard,
             inputs=[state],
-            outputs=[dash_status, dash_dataset, dash_errors, dash_chart, dash_workflow],
-        )
-
-        dash_quick_load_btn.click(
-            fn=_quick_load_next_val_case,
-            inputs=[state],
-            outputs=[
-                state,
-                upload_handles["split_radio"],
-                upload_handles["case_dropdown"],
-                upload_handles["preview_image"],
-                upload_handles["case_info"],
-                upload_handles["frame_gallery"],
-                dash_quick_status,
-                dash_workflow,
-                tabs,
-                upload_handles["test_subset_radio"],
-                upload_handles["train_source_btn"],
-                upload_handles["val_source_btn"],
-                upload_handles["test_source_btn"],
-                upload_handles["dataset_selector_status"],
-            ],
-        )
-
-        dash_quick_analyze_btn.click(
-            fn=_quick_run_pipeline_from_dashboard,
-            inputs=[state],
-            outputs=[
-                state,
-                pipeline_handles["det_preview"],
-                pipeline_handles["seg_gallery"],
-                pipeline_handles["area_plot"],
-                pipeline_handles["report_html"],
-                pipeline_handles["diagnosis_summary"],
-                dash_quick_status,
-                dash_workflow,
-                tabs,
-            ],
+            outputs=[dash_status, dash_dataset, dash_errors, dash_chart],
         )
 
     return app, custom_css, theme, clock_head
