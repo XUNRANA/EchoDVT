@@ -1375,12 +1375,10 @@ def _refresh_dashboard(state: dict):
 def build_dashboard_panel(state: gr.State):
     """构建 Dashboard 首页面板"""
 
-    # 欢迎区
+    # 简介
     gr.HTML("""
-    <div class="welcome-banner">
-        <h2>欢迎使用 EchoDVT 智能诊断系统</h2>
-        <p>基于超声影像的深静脉血栓 (DVT) 智能辅助诊断平台。
-        请从左侧导航栏选择功能模块开始使用。</p>
+    <div class="dashboard-muted-copy">
+        系统概览 — GPU / 模型 / 数据集状态。点击上方标签切换功能模块。
     </div>
     """)
 
