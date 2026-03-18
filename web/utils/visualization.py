@@ -2,13 +2,11 @@
 EchoDVT 可视化工具
 - 检测框绘制
 - Mask 叠加
-- 对比图生成
 """
 
 import cv2
 import numpy as np
-from typing import Dict, List, Optional, Tuple
-from pathlib import Path
+from typing import Dict
 
 
 # 颜色定义 (BGR)
@@ -102,90 +100,11 @@ def overlay_masks(
     return canvas
 
 
-def build_comparison_image(
-    original: np.ndarray,
-    gt_mask: Optional[np.ndarray],
-    pred_mask: np.ndarray,
-    detections: Dict[str, dict],
-    metrics: Optional[Dict[str, float]] = None,
-    frame_idx: int = 0,
-    is_prompt_frame: bool = False,
-) -> np.ndarray:
-    """
-    构建三面板对比图: 原图+检测框 | GT | 预测
-
-    Returns:
-        拼接后的 BGR 图像
-    """
-    h, w = original.shape[:2]
-
-    # Panel 1: 原图 + YOLO 框
-    panel1 = draw_detection_boxes(original, detections)
-    cv2.putText(panel1, f"Frame #{frame_idx} + YOLO", (10, 28),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
-
-    # Panel 2: GT Mask
-    if gt_mask is not None:
-        panel2 = overlay_masks(original, gt_mask, alpha=0.5)
-        cv2.putText(panel2, "Ground Truth", (10, 28),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
-    else:
-        panel2 = original.copy()
-        cv2.putText(panel2, "No GT Available", (10, 28),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (128, 128, 128), 2, cv2.LINE_AA)
-
-    # Panel 3: 预测 Mask
-    panel3 = overlay_masks(original, pred_mask, alpha=0.5)
-    mode_text = "SAM2 Prediction (Prompt)" if is_prompt_frame else "SAM2 Prediction (Memory)"
-    cv2.putText(panel3, mode_text, (10, 28),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
-
-    # 添加指标文字
-    if metrics:
-        y = 56
-        for key in ["mean_dice", "miou", "artery_dice", "vein_dice"]:
-            if key in metrics:
-                pretty_name = key.replace("_", " ").title()
-                text = f"{pretty_name}: {metrics[key]:.4f}"
-                cv2.putText(panel3, text, (10, y),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
-                y += 22
-
-    # 分隔线
-    sep = np.full((h, 6, 3), 40, dtype=np.uint8)
-    return np.hstack([panel1, sep, panel2, sep, panel3])
-
-
-def create_area_chart_data(
-    frame_areas: Dict[int, Dict[str, float]],
-) -> Dict[str, list]:
-    """
-    从逐帧面积数据生成图表数据
-
-    Args:
-        frame_areas: {frame_idx: {"artery_area": float, "vein_area": float}}
-
-    Returns:
-        {"frames": [...], "artery": [...], "vein": [...]}
-    """
-    frames = sorted(frame_areas.keys())
-    artery_areas = [frame_areas[f].get("artery_area", 0) for f in frames]
-    vein_areas = [frame_areas[f].get("vein_area", 0) for f in frames]
-    return {
-        "frames": frames,
-        "artery": artery_areas,
-        "vein": vein_areas,
-    }
-
 
 def bgr_to_rgb(image: np.ndarray) -> np.ndarray:
     """BGR → RGB 转换"""
     return cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-
-def rgb_to_bgr(image: np.ndarray) -> np.ndarray:
-    """RGB → BGR 转换"""
-    return cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
 
 
 def _draw_dashed_rect(img, pt1, pt2, color, thickness, dash_len=10, gap_len=5):

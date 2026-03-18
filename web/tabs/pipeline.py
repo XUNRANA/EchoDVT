@@ -82,23 +82,15 @@ def _run_full_pipeline(
     progress(0.15, desc="[2/4] SAM2 视频分割...")
 
     pred_masks_by_idx = None
-    is_lora = "LoRA" in model_variant
     try:
-        if is_lora:
-            from web.services import InferenceService
-            pred_masks_by_idx = InferenceService.get().run_segmentation(
-                images_dir=images_dir,
-                detections=detections,
-                num_frames=num_frames,
-                use_mfp=use_mfp,
-                variant=model_variant if model_variant in DEFAULT_LORA_WEIGHTS else DEFAULT_SAM2_VARIANT,
-            )
-        else:
-            from tabs.segmentation import _run_baseline_sam2
-            pred_masks_by_idx = _run_baseline_sam2(
-                images_dir, detections, set(range(num_frames)),
-                model_variant, progress,
-            )
+        from web.services import InferenceService
+        pred_masks_by_idx = InferenceService.get().run_segmentation(
+            images_dir=images_dir,
+            detections=detections,
+            num_frames=num_frames,
+            use_mfp=use_mfp,
+            variant=DEFAULT_SAM2_VARIANT,
+        )
     except Exception:
         pass
 

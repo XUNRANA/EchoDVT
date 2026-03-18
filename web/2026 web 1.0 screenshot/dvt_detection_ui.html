@@ -1,0 +1,1495 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DVT-Sonar · 深静脉血栓智能检测系统</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-deep:    #030b12;
+    --bg-card:    #071523;
+    --bg-panel:   #0a1e30;
+    --accent:     #00d4b1;
+    --accent2:    #0084ff;
+    --accent3:    #ff4e6a;
+    --text-main:  #e2edf5;
+    --text-dim:   #5a8099;
+    --text-mid:   #9bbccc;
+    --border:     rgba(0,212,177,0.15);
+    --glow:       0 0 20px rgba(0,212,177,0.25);
+    --glow-blue:  0 0 20px rgba(0,132,255,0.25);
+    --danger:     #ff4e6a;
+    --safe:       #00d4b1;
+    --mono: 'Space Mono', monospace;
+    --sans: 'Noto Sans SC', sans-serif;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg-deep);
+    color: var(--text-main);
+    font-family: var(--sans);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ─── GRID BACKGROUND ─── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; z-index: 0;
+    background-image:
+      linear-gradient(rgba(0,212,177,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,212,177,0.03) 1px, transparent 1px);
+    background-size: 48px 48px;
+    pointer-events: none;
+  }
+
+  /* ─── SCAN LINE ─── */
+  body::after {
+    content: '';
+    position: fixed; top: 0; left: 0; right: 0; height: 2px; z-index: 999;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    animation: scanline 4s linear infinite;
+    opacity: 0.4;
+  }
+  @keyframes scanline { 0% { top: 0; } 100% { top: 100vh; } }
+
+  /* ─── HEADER ─── */
+  header {
+    position: relative; z-index: 10;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 40px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(3,11,18,0.85);
+    backdrop-filter: blur(12px);
+  }
+
+  .logo-group { display: flex; align-items: center; gap: 14px; }
+
+  .logo-icon {
+    width: 40px; height: 40px;
+    border: 2px solid var(--accent);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+    box-shadow: var(--glow);
+  }
+  .logo-icon svg { width: 22px; height: 22px; fill: var(--accent); }
+
+  .logo-pulse {
+    position: absolute; inset: -4px;
+    border: 1px solid var(--accent);
+    border-radius: 11px;
+    animation: pulse-ring 2s ease-out infinite;
+  }
+  @keyframes pulse-ring { 0%{opacity:.8;transform:scale(1)} 100%{opacity:0;transform:scale(1.5)} }
+
+  .logo-text { line-height: 1.1; }
+  .logo-text .brand {
+    font-family: var(--mono); font-size: 18px; font-weight: 700;
+    color: var(--accent); letter-spacing: 2px;
+  }
+  .logo-text .sub {
+    font-size: 11px; color: var(--text-dim); letter-spacing: 3px;
+    text-transform: uppercase;
+  }
+
+  .header-status { display: flex; align-items: center; gap: 24px; }
+
+  .status-badge {
+    display: flex; align-items: center; gap: 8px;
+    font-family: var(--mono); font-size: 11px; color: var(--text-mid);
+  }
+  .status-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 6px var(--accent);
+    animation: blink 1.4s ease-in-out infinite;
+  }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+  .ver-tag {
+    font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+    border: 1px solid var(--border); border-radius: 4px; padding: 3px 8px;
+  }
+
+  /* ─── HERO ─── */
+  .hero {
+    position: relative; z-index: 5;
+    text-align: center; padding: 60px 40px 40px;
+  }
+
+  .hero-eyebrow {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 5px;
+    color: var(--accent); text-transform: uppercase; margin-bottom: 16px;
+    opacity: 0; animation: fadeup .6s .2s forwards;
+  }
+
+  .hero-title {
+    font-size: clamp(28px, 5vw, 52px); font-weight: 700;
+    line-height: 1.15; margin-bottom: 16px;
+    opacity: 0; animation: fadeup .6s .4s forwards;
+  }
+  .hero-title .hl {
+    color: var(--accent);
+    text-shadow: 0 0 30px rgba(0,212,177,0.5);
+  }
+
+  .hero-desc {
+    font-size: 15px; color: var(--text-mid); max-width: 620px;
+    margin: 0 auto 32px; line-height: 1.8;
+    opacity: 0; animation: fadeup .6s .6s forwards;
+  }
+
+  @keyframes fadeup { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:none} }
+
+  /* ─── PIPELINE FLOW ─── */
+  .pipeline-section {
+    position: relative; z-index: 5;
+    padding: 0 40px 50px;
+  }
+
+  .section-label {
+    font-family: var(--mono); font-size: 11px; color: var(--accent);
+    letter-spacing: 4px; text-transform: uppercase; margin-bottom: 20px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .section-label::after {
+    content: ''; flex: 1; height: 1px; background: var(--border);
+  }
+
+  .pipeline {
+    display: flex; align-items: stretch; gap: 0;
+    overflow-x: auto; padding-bottom: 8px;
+  }
+  .pipeline::-webkit-scrollbar { height: 3px; }
+  .pipeline::-webkit-scrollbar-track { background: transparent; }
+  .pipeline::-webkit-scrollbar-thumb { background: var(--border); }
+
+  .pipe-step {
+    flex: 1; min-width: 140px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 16px;
+    text-align: center;
+    position: relative;
+    transition: all .3s;
+    cursor: default;
+    animation: fadeup .5s both;
+  }
+  .pipe-step:hover {
+    border-color: var(--accent);
+    box-shadow: var(--glow);
+    transform: translateY(-3px);
+  }
+  .pipe-step:nth-child(1) { animation-delay:.1s }
+  .pipe-step:nth-child(2) { animation-delay:.2s }
+  .pipe-step:nth-child(3) { animation-delay:.3s }
+  .pipe-step:nth-child(4) { animation-delay:.4s }
+  .pipe-step:nth-child(5) { animation-delay:.5s }
+  .pipe-step:nth-child(6) { animation-delay:.6s }
+
+  .pipe-arrow {
+    display: flex; align-items: center; padding: 0 4px;
+    color: var(--accent); font-size: 18px; opacity: 0.5;
+    flex-shrink: 0;
+  }
+
+  .pipe-num {
+    font-family: var(--mono); font-size: 10px; color: var(--text-dim);
+    margin-bottom: 8px; letter-spacing: 2px;
+  }
+  .pipe-icon {
+    font-size: 24px; margin-bottom: 10px; display: block;
+    filter: drop-shadow(0 0 6px rgba(0,212,177,0.4));
+  }
+  .pipe-name {
+    font-size: 13px; font-weight: 500; color: var(--text-main);
+    margin-bottom: 4px; line-height: 1.3;
+  }
+  .pipe-tech {
+    font-family: var(--mono); font-size: 10px; color: var(--accent);
+    background: rgba(0,212,177,0.08); border-radius: 4px;
+    padding: 2px 6px; display: inline-block;
+  }
+
+  /* ─── MAIN LAYOUT ─── */
+  .main-grid {
+    position: relative; z-index: 5;
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    grid-template-rows: auto auto;
+    gap: 20px;
+    padding: 0 40px 40px;
+  }
+
+  @media (max-width: 1100px) {
+    .main-grid { grid-template-columns: 1fr; }
+  }
+
+  /* ─── UPLOAD PANEL ─── */
+  .upload-panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px;
+    grid-row: 1;
+  }
+
+  .panel-title {
+    font-family: var(--mono); font-size: 12px; color: var(--text-dim);
+    letter-spacing: 3px; text-transform: uppercase; margin-bottom: 20px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .panel-title .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+
+  .drop-zone {
+    border: 2px dashed rgba(0,212,177,0.25);
+    border-radius: 12px;
+    padding: 48px 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: all .3s;
+    position: relative;
+    overflow: hidden;
+  }
+  .drop-zone:hover, .drop-zone.drag-over {
+    border-color: var(--accent);
+    background: rgba(0,212,177,0.05);
+  }
+  .drop-zone::before {
+    content: '';
+    position: absolute; inset: 0;
+    background: radial-gradient(ellipse at center, rgba(0,212,177,0.04) 0%, transparent 70%);
+  }
+
+  .drop-icon { font-size: 40px; margin-bottom: 14px; display: block; }
+  .drop-title { font-size: 16px; font-weight: 500; margin-bottom: 6px; }
+  .drop-sub { font-size: 13px; color: var(--text-dim); }
+  .drop-formats {
+    margin-top: 14px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;
+  }
+  .fmt-tag {
+    font-family: var(--mono); font-size: 10px; color: var(--accent2);
+    border: 1px solid rgba(0,132,255,0.3); border-radius: 4px; padding: 2px 8px;
+  }
+
+  /* Video Preview */
+  .video-preview {
+    display: none;
+    margin-top: 20px;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    position: relative;
+    background: #000;
+  }
+  .video-preview video, .video-preview img {
+    width: 100%; display: block; max-height: 340px; object-fit: contain;
+  }
+  .video-overlay {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.3);
+  }
+
+  /* ─── ACTION ROW ─── */
+  .action-row {
+    display: flex; gap: 12px; margin-top: 20px; flex-wrap: wrap;
+  }
+
+  .btn {
+    flex: 1; min-width: 140px;
+    padding: 13px 20px;
+    border-radius: 10px; border: none; cursor: pointer;
+    font-family: var(--sans); font-size: 14px; font-weight: 500;
+    letter-spacing: 0.5px;
+    transition: all .25s; position: relative; overflow: hidden;
+  }
+  .btn::after {
+    content: '';
+    position: absolute; inset: 0;
+    background: rgba(255,255,255,0.08);
+    opacity: 0; transition: opacity .2s;
+  }
+  .btn:hover::after { opacity: 1; }
+
+  .btn-primary {
+    background: linear-gradient(135deg, #00c4a3, #0095e8);
+    color: #fff;
+    box-shadow: 0 4px 20px rgba(0,196,163,0.35);
+  }
+  .btn-primary:hover { box-shadow: 0 6px 28px rgba(0,196,163,0.5); transform: translateY(-1px); }
+  .btn-primary:disabled { opacity: .4; cursor: not-allowed; transform: none; }
+
+  .btn-outline {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-mid);
+  }
+  .btn-outline:hover { border-color: var(--accent); color: var(--accent); }
+
+  .btn-demo {
+    background: rgba(0,132,255,0.12);
+    border: 1px solid rgba(0,132,255,0.3);
+    color: var(--accent2);
+  }
+  .btn-demo:hover { background: rgba(0,132,255,0.2); }
+
+  /* ─── PROGRESS ─── */
+  .progress-panel {
+    display: none;
+    margin-top: 20px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+
+  .progress-title {
+    font-family: var(--mono); font-size: 12px; color: var(--text-dim);
+    letter-spacing: 2px; margin-bottom: 16px;
+  }
+
+  .progress-steps { display: flex; flex-direction: column; gap: 10px; }
+
+  .p-step {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    transition: all .4s;
+  }
+  .p-step.active {
+    border-color: rgba(0,212,177,0.3);
+    background: rgba(0,212,177,0.05);
+  }
+  .p-step.done {
+    border-color: rgba(0,212,177,0.15);
+    background: rgba(0,212,177,0.03);
+  }
+  .p-step.error { border-color: rgba(255,78,106,0.3); background: rgba(255,78,106,0.05); }
+
+  .p-step-icon { font-size: 18px; flex-shrink: 0; }
+  .p-step-info { flex: 1; }
+  .p-step-name { font-size: 13px; font-weight: 500; }
+  .p-step-sub { font-family: var(--mono); font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+  .p-step-status { font-family: var(--mono); font-size: 11px; }
+  .p-step-status.wait { color: var(--text-dim); }
+  .p-step-status.run  { color: var(--accent); }
+  .p-step-status.ok   { color: var(--safe); }
+  .p-step-status.err  { color: var(--danger); }
+
+  .spinner {
+    display: inline-block; width: 12px; height: 12px;
+    border: 2px solid rgba(0,212,177,0.2);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+    vertical-align: middle; margin-right: 4px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .progress-bar-wrap {
+    margin-top: 14px;
+    height: 4px; background: rgba(0,212,177,0.1); border-radius: 2px; overflow: hidden;
+  }
+  .progress-bar {
+    height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2));
+    border-radius: 2px; width: 0%;
+    transition: width .5s ease;
+    box-shadow: 0 0 8px var(--accent);
+  }
+
+  /* ─── RIGHT PANEL ─── */
+  .right-col {
+    display: flex; flex-direction: column; gap: 16px;
+    grid-row: 1 / 3;
+  }
+
+  /* ─── RESULT CARD ─── */
+  .result-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px;
+    position: relative; overflow: hidden;
+  }
+
+  .result-empty {
+    text-align: center; padding: 30px 0;
+    color: var(--text-dim); font-size: 13px;
+  }
+  .result-empty .big-icon { font-size: 42px; margin-bottom: 10px; opacity: 0.4; display: block; }
+
+  .result-display { display: none; }
+
+  .diagnosis-badge {
+    border-radius: 12px;
+    padding: 20px 24px;
+    text-align: center;
+    margin-bottom: 18px;
+    position: relative; overflow: hidden;
+  }
+  .diagnosis-badge.dvt {
+    background: rgba(255,78,106,0.1);
+    border: 2px solid rgba(255,78,106,0.4);
+  }
+  .diagnosis-badge.normal {
+    background: rgba(0,212,177,0.08);
+    border: 2px solid rgba(0,212,177,0.35);
+  }
+  .diagnosis-badge::before {
+    content: '';
+    position: absolute; top: -30px; right: -30px;
+    width: 100px; height: 100px; border-radius: 50%;
+    opacity: .15;
+  }
+  .diagnosis-badge.dvt::before { background: var(--danger); }
+  .diagnosis-badge.normal::before { background: var(--accent); }
+
+  .diag-label {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 4px;
+    text-transform: uppercase; margin-bottom: 8px;
+  }
+  .diagnosis-badge.dvt .diag-label { color: var(--danger); }
+  .diagnosis-badge.normal .diag-label { color: var(--accent); }
+
+  .diag-result {
+    font-size: 26px; font-weight: 700; line-height: 1;
+  }
+  .diagnosis-badge.dvt .diag-result { color: var(--danger); }
+  .diagnosis-badge.normal .diag-result { color: var(--accent); }
+
+  .diag-conf {
+    font-family: var(--mono); font-size: 12px; color: var(--text-mid);
+    margin-top: 8px;
+  }
+
+  /* Confidence Bar */
+  .conf-row { display: flex; flex-direction: column; gap: 10px; }
+  .conf-item { display: flex; flex-direction: column; gap: 5px; }
+  .conf-label {
+    display: flex; justify-content: space-between;
+    font-size: 12px; color: var(--text-mid);
+  }
+  .conf-label .cv { font-family: var(--mono); font-size: 11px; }
+  .conf-bar {
+    height: 6px; border-radius: 3px;
+    background: rgba(255,255,255,0.06); overflow: hidden;
+  }
+  .conf-fill {
+    height: 100%; border-radius: 3px;
+    transition: width 1s cubic-bezier(0.4,0,0.2,1);
+    width: 0;
+  }
+  .conf-fill.dvt-fill { background: linear-gradient(90deg, #c43055, #ff4e6a); }
+  .conf-fill.norm-fill { background: linear-gradient(90deg, #009e85, #00d4b1); }
+
+  /* ─── FEATURE METRICS ─── */
+  .metrics-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px;
+  }
+
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-top: 14px;
+  }
+
+  .metric-box {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 10px;
+    text-align: center;
+    transition: all .3s;
+    cursor: default;
+  }
+  .metric-box:hover {
+    border-color: var(--accent);
+    box-shadow: 0 0 12px rgba(0,212,177,0.15);
+  }
+  .metric-name {
+    font-family: var(--mono); font-size: 9px; color: var(--text-dim);
+    letter-spacing: 1px; text-transform: uppercase; margin-bottom: 6px;
+  }
+  .metric-val {
+    font-family: var(--mono); font-size: 17px; font-weight: 700;
+    color: var(--accent);
+    transition: all .5s;
+  }
+  .metric-val.anomaly { color: var(--danger); }
+  .metric-unit {
+    font-family: var(--mono); font-size: 9px; color: var(--text-dim);
+    margin-top: 2px;
+  }
+
+  /* ─── VISUALIZATION PANEL ─── */
+  .viz-panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px;
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .viz-tabs {
+    display: flex; gap: 4px; margin-bottom: 20px;
+    background: var(--bg-panel); border-radius: 10px; padding: 4px;
+  }
+  .viz-tab {
+    flex: 1; padding: 8px 12px;
+    border-radius: 7px; border: none; background: transparent; cursor: pointer;
+    font-family: var(--sans); font-size: 12px; color: var(--text-dim);
+    transition: all .25s;
+  }
+  .viz-tab.active {
+    background: var(--bg-card); color: var(--text-main);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.4);
+  }
+
+  /* Canvas placeholder */
+  .chart-area {
+    width: 100%; height: 240px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    position: relative; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  .chart-area canvas { position: absolute; inset: 0; width: 100%!important; height: 100%!important; }
+
+  .chart-placeholder {
+    text-align: center; color: var(--text-dim);
+    font-family: var(--mono); font-size: 12px;
+  }
+
+  /* ─── STAT ROW ─── */
+  .stat-row {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px;
+    padding: 0 40px 40px;
+    position: relative; z-index: 5;
+  }
+
+  .stat-box {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 14px; padding: 20px 18px;
+    position: relative; overflow: hidden;
+    transition: all .3s;
+    animation: fadeup .5s both;
+  }
+  .stat-box:nth-child(1){animation-delay:.1s}
+  .stat-box:nth-child(2){animation-delay:.2s}
+  .stat-box:nth-child(3){animation-delay:.3s}
+  .stat-box:nth-child(4){animation-delay:.4s}
+  .stat-box:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: var(--glow); }
+  .stat-box::after {
+    content: '';
+    position: absolute; bottom: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    opacity: 0; transition: opacity .3s;
+  }
+  .stat-box:hover::after { opacity: 1; }
+
+  .stat-lbl { font-size: 11px; color: var(--text-dim); margin-bottom: 8px; letter-spacing: 1px; }
+  .stat-num {
+    font-family: var(--mono); font-size: 28px; font-weight: 700;
+    color: var(--accent); line-height: 1;
+  }
+  .stat-unit { font-family: var(--mono); font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+  .stat-icon {
+    position: absolute; right: 16px; top: 16px; font-size: 22px; opacity: 0.2;
+  }
+
+  /* ─── FOOTER ─── */
+  footer {
+    position: relative; z-index: 5;
+    text-align: center; padding: 24px 40px;
+    border-top: 1px solid var(--border);
+    font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+    letter-spacing: 1px;
+  }
+
+  /* ─── MODAL ─── */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0; z-index: 200;
+    background: rgba(3,11,18,0.88); backdrop-filter: blur(6px);
+    align-items: center; justify-content: center;
+  }
+  .modal-overlay.show { display: flex; }
+  .modal {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 36px; max-width: 500px; width: 90%;
+    box-shadow: 0 0 60px rgba(0,0,0,0.8), var(--glow);
+    animation: modalIn .35s cubic-bezier(0.34,1.56,0.64,1);
+  }
+  @keyframes modalIn { from{opacity:0;transform:scale(.85)} to{opacity:1;transform:none} }
+  .modal-title {
+    font-size: 18px; font-weight: 700; margin-bottom: 8px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .modal-body { font-size: 14px; color: var(--text-mid); line-height: 1.8; margin-bottom: 24px; }
+  .modal-close {
+    width: 100%; padding: 12px;
+    background: linear-gradient(135deg, #00c4a3, #0095e8);
+    border: none; border-radius: 10px; color: #fff;
+    font-size: 14px; font-weight: 500; cursor: pointer;
+    transition: all .2s;
+  }
+  .modal-close:hover { box-shadow: 0 4px 20px rgba(0,196,163,0.4); transform: translateY(-1px); }
+
+  /* ─── HIDDEN FILE INPUT ─── */
+  #fileInput { display: none; }
+
+  /* ─── ANIMATED ULTRASOUND CANVAS ─── */
+  .us-canvas-wrap {
+    width: 100%; aspect-ratio: 16/9;
+    background: #000; border-radius: 12px; overflow: hidden;
+    position: relative;
+  }
+  #usCanvas { width: 100%; height: 100%; display: block; }
+
+  .canvas-overlay-ui {
+    position: absolute; inset: 0; pointer-events: none;
+    padding: 12px;
+  }
+  .ui-corner {
+    position: absolute;
+    font-family: var(--mono); font-size: 10px; color: rgba(0,212,177,0.7);
+    line-height: 1.6;
+  }
+  .ui-corner.tl { top: 12px; left: 12px; }
+  .ui-corner.tr { top: 12px; right: 12px; text-align: right; }
+  .ui-corner.bl { bottom: 12px; left: 12px; }
+  .ui-corner.br { bottom: 12px; right: 12px; text-align: right; }
+
+  /* ─── RESPONSIVE ─── */
+  @media (max-width: 768px) {
+    header { padding: 14px 20px; }
+    .hero { padding: 40px 20px 28px; }
+    .pipeline-section { padding: 0 20px 36px; }
+    .main-grid { padding: 0 20px 30px; gap: 14px; }
+    .stat-row { grid-template-columns: 1fr 1fr; padding: 0 20px 30px; }
+    footer { padding: 18px 20px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+  <div class="logo-group">
+    <div class="logo-icon">
+      <div class="logo-pulse"></div>
+      <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/>
+      </svg>
+    </div>
+    <div class="logo-text">
+      <div class="brand">DVT·SONAR</div>
+      <div class="sub">Deep Vein Thrombosis Detection</div>
+    </div>
+  </div>
+  <div class="header-status">
+    <div class="status-badge"><div class="status-dot"></div>SYSTEM ONLINE</div>
+    <div class="ver-tag">v2.0.0-beta</div>
+  </div>
+</header>
+
+<!-- HERO -->
+<section class="hero">
+  <p class="hero-eyebrow">⚕ 基于深度学习的超声影像分析平台</p>
+  <h1 class="hero-title">
+    智能识别<span class="hl">深静脉血栓</span><br>让超声诊断更精准
+  </h1>
+  <p class="hero-desc">
+    结合 YOLO 目标检测 · SAM2+LoRA 视频分割 · 21 维时序特征工程，<br>
+    实现对深静脉血栓 (DVT) 的自动化、高精度二分类诊断。
+  </p>
+</section>
+
+<!-- PIPELINE -->
+<section class="pipeline-section">
+  <div class="section-label">技术流水线 · PIPELINE</div>
+  <div class="pipeline">
+    <div class="pipe-step">
+      <div class="pipe-num">01</div>
+      <span class="pipe-icon">🎬</span>
+      <div class="pipe-name">超声视频输入</div>
+      <span class="pipe-tech">MP4 / AVI</span>
+    </div>
+    <div class="pipe-arrow">›</div>
+    <div class="pipe-step">
+      <div class="pipe-num">02</div>
+      <span class="pipe-icon">🎯</span>
+      <div class="pipe-name">YOLO 首帧检测</div>
+      <span class="pipe-tech">YOLOv8 + 先验补全</span>
+    </div>
+    <div class="pipe-arrow">›</div>
+    <div class="pipe-step">
+      <div class="pipe-num">03</div>
+      <span class="pipe-icon">🔬</span>
+      <div class="pipe-name">SAM2 视频分割</div>
+      <span class="pipe-tech">LoRA + MFP</span>
+    </div>
+    <div class="pipe-arrow">›</div>
+    <div class="pipe-step">
+      <div class="pipe-num">04</div>
+      <span class="pipe-icon">📊</span>
+      <div class="pipe-name">21维特征提取</div>
+      <span class="pipe-tech">VCR · VDR · VARR</span>
+    </div>
+    <div class="pipe-arrow">›</div>
+    <div class="pipe-step">
+      <div class="pipe-num">05</div>
+      <span class="pipe-icon">🧠</span>
+      <div class="pipe-name">二分类判断</div>
+      <span class="pipe-tech">DVT / Normal</span>
+    </div>
+    <div class="pipe-arrow">›</div>
+    <div class="pipe-step">
+      <div class="pipe-num">06</div>
+      <span class="pipe-icon">📡</span>
+      <div class="pipe-name">可视化展示</div>
+      <span class="pipe-tech">Gradio · Web UI</span>
+    </div>
+  </div>
+</section>
+
+<!-- STATS ROW -->
+<div class="stat-row">
+  <div class="stat-box">
+    <div class="stat-icon">🎯</div>
+    <div class="stat-lbl">分类准确率</div>
+    <div class="stat-num" id="accNum">0</div>
+    <div class="stat-unit">% · Accuracy</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-icon">⚡</div>
+    <div class="stat-lbl">平均推理时间</div>
+    <div class="stat-num" id="timeNum">0</div>
+    <div class="stat-unit">s / clip</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-icon">🔬</div>
+    <div class="stat-lbl">特征维度</div>
+    <div class="stat-num">21</div>
+    <div class="stat-unit">dims · 时序特征</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-icon">🏥</div>
+    <div class="stat-lbl">验证样本量</div>
+    <div class="stat-num" id="caseNum">0</div>
+    <div class="stat-unit">cases · 临床数据</div>
+  </div>
+</div>
+
+<!-- MAIN GRID -->
+<div class="main-grid">
+
+  <!-- LEFT: UPLOAD -->
+  <div class="upload-panel">
+    <div class="panel-title"><div class="dot"></div>VIDEO INPUT · 超声视频输入</div>
+
+    <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+      <span class="drop-icon">📡</span>
+      <div class="drop-title">拖放超声视频 / 点击上传</div>
+      <div class="drop-sub">支持多种超声设备导出格式</div>
+      <div class="drop-formats">
+        <span class="fmt-tag">MP4</span>
+        <span class="fmt-tag">AVI</span>
+        <span class="fmt-tag">MOV</span>
+        <span class="fmt-tag">DICOM</span>
+      </div>
+    </div>
+    <input type="file" id="fileInput" accept="video/*">
+
+    <div class="video-preview" id="videoPreview">
+      <div class="us-canvas-wrap">
+        <canvas id="usCanvas"></canvas>
+        <div class="canvas-overlay-ui">
+          <div class="ui-corner tl" id="uiTL">
+            FREQ: 7.5 MHz<br>DEPTH: 4.0 cm<br>GAIN: 68 dB
+          </div>
+          <div class="ui-corner tr" id="uiTR">
+            FRAME: <span id="frameNum">000</span><br>
+            TIME: <span id="elapsedTime">0.00</span>s
+          </div>
+          <div class="ui-corner bl">
+            ← R.FEM.V →<br>COMPRESS OFF
+          </div>
+          <div class="ui-corner br">
+            PHILIPS iU22<br>LINEAR L12-3
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="action-row" id="actionRow">
+      <button class="btn btn-demo" onclick="runDemo()">🎭 演示模式</button>
+      <button class="btn btn-primary" id="analyzeBtn" disabled onclick="startAnalysis()">
+        🔍 开始分析
+      </button>
+    </div>
+
+    <!-- PROGRESS -->
+    <div class="progress-panel" id="progressPanel">
+      <div class="progress-title">▶ PROCESSING · 分析进度</div>
+      <div class="progress-steps">
+        <div class="p-step" id="ps0">
+          <div class="p-step-icon">🎬</div>
+          <div class="p-step-info">
+            <div class="p-step-name">视频帧解码</div>
+            <div class="p-step-sub">Frame extraction & preprocessing</div>
+          </div>
+          <div class="p-step-status wait" id="ps0-s">WAIT</div>
+        </div>
+        <div class="p-step" id="ps1">
+          <div class="p-step-icon">🎯</div>
+          <div class="p-step-info">
+            <div class="p-step-name">YOLO 目标检测</div>
+            <div class="p-step-sub">Artery / Vein bounding box + prior completion</div>
+          </div>
+          <div class="p-step-status wait" id="ps1-s">WAIT</div>
+        </div>
+        <div class="p-step" id="ps2">
+          <div class="p-step-icon">🔬</div>
+          <div class="p-step-info">
+            <div class="p-step-name">SAM2+LoRA 视频分割</div>
+            <div class="p-step-sub">Multi-frame prompt propagation (MFP)</div>
+          </div>
+          <div class="p-step-status wait" id="ps2-s">WAIT</div>
+        </div>
+        <div class="p-step" id="ps3">
+          <div class="p-step-icon">📊</div>
+          <div class="p-step-info">
+            <div class="p-step-name">21维时序特征提取</div>
+            <div class="p-step-sub">VCR · VDR · VARR · MVAR · ...</div>
+          </div>
+          <div class="p-step-status wait" id="ps3-s">WAIT</div>
+        </div>
+        <div class="p-step" id="ps4">
+          <div class="p-step-icon">🧠</div>
+          <div class="p-step-info">
+            <div class="p-step-name">DVT 二分类推断</div>
+            <div class="p-step-sub">Threshold classification & confidence scoring</div>
+          </div>
+          <div class="p-step-status wait" id="ps4-s">WAIT</div>
+        </div>
+      </div>
+      <div class="progress-bar-wrap">
+        <div class="progress-bar" id="progressBar"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: RESULT + METRICS -->
+  <div class="right-col">
+
+    <!-- Result -->
+    <div class="result-card">
+      <div class="panel-title"><div class="dot"></div>DIAGNOSIS · 诊断结果</div>
+
+      <div class="result-empty" id="resultEmpty">
+        <span class="big-icon">🩻</span>
+        上传视频后<br>此处显示诊断结果
+      </div>
+
+      <div class="result-display" id="resultDisplay">
+        <div class="diagnosis-badge" id="diagBadge">
+          <div class="diag-label" id="diagLabel">DIAGNOSIS</div>
+          <div class="diag-result" id="diagResult">—</div>
+          <div class="diag-conf" id="diagConf">Confidence: —</div>
+        </div>
+
+        <div class="conf-row">
+          <div class="conf-item">
+            <div class="conf-label"><span>DVT 概率</span><span class="cv" id="dvtPct">—</span></div>
+            <div class="conf-bar"><div class="conf-fill dvt-fill" id="dvtBar"></div></div>
+          </div>
+          <div class="conf-item">
+            <div class="conf-label"><span>正常概率</span><span class="cv" id="normPct">—</span></div>
+            <div class="conf-bar"><div class="conf-fill norm-fill" id="normBar"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 21-dim Metrics -->
+    <div class="metrics-card">
+      <div class="panel-title"><div class="dot"></div>FEATURES · 21维时序特征</div>
+      <div class="metrics-grid" id="metricsGrid">
+        <!-- filled by JS -->
+      </div>
+    </div>
+
+  </div>
+
+  <!-- VIZ PANEL -->
+  <div class="viz-panel">
+    <div class="panel-title"><div class="dot"></div>VISUALIZATION · 时序特征可视化</div>
+
+    <div class="viz-tabs" id="vizTabs">
+      <button class="viz-tab active" onclick="switchTab(this, 'vcr')">VCR 面积变化率</button>
+      <button class="viz-tab" onclick="switchTab(this, 'vdr')">VDR 直径变化率</button>
+      <button class="viz-tab" onclick="switchTab(this, 'mvar')">MVAR 均值方差</button>
+    </div>
+
+    <div class="chart-area">
+      <canvas id="featureChart"></canvas>
+      <div class="chart-placeholder" id="chartPlaceholder">
+        <div style="font-size:28px;margin-bottom:8px;opacity:.3">📈</div>
+        分析完成后显示特征曲线
+      </div>
+    </div>
+  </div>
+
+</div><!-- /main-grid -->
+
+<!-- FOOTER -->
+<footer>
+  DVT·SONAR &nbsp;·&nbsp; 深静脉血栓智能检测系统 &nbsp;·&nbsp; 毕业设计展示版 &nbsp;·&nbsp;
+  YOLO · SAM2 · LoRA · MFP · 21-DIM FEATURE ENGINEERING
+</footer>
+
+<!-- MODAL -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal">
+    <div class="modal-title" id="modalTitle">📋 分析说明</div>
+    <div class="modal-body" id="modalBody">...</div>
+    <button class="modal-close" onclick="closeModal()">确认</button>
+  </div>
+</div>
+
+<script>
+// ────────────────────────────────
+// COUNTER ANIMATION
+// ────────────────────────────────
+function animateCounter(el, target, duration=1800, suffix='') {
+  let start = null;
+  const step = ts => {
+    if (!start) start = ts;
+    const p = Math.min((ts - start) / duration, 1);
+    const ease = 1 - Math.pow(1 - p, 3);
+    el.textContent = Math.floor(ease * target) + suffix;
+    if (p < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+setTimeout(()=>{
+  animateCounter(document.getElementById('accNum'), 94);
+  animateCounter(document.getElementById('timeNum'), 3.2);
+  animateCounter(document.getElementById('caseNum'), 248);
+}, 600);
+
+// ────────────────────────────────
+// FEATURES DEFINITION
+// ────────────────────────────────
+const FEATURES = [
+  { key:'VCR',  name:'VCR',  unit:'ratio' },
+  { key:'VDR',  name:'VDR',  unit:'ratio' },
+  { key:'VARR', name:'VARR', unit:'%' },
+  { key:'MVAR', name:'MVAR', unit:'a.u.' },
+  { key:'AREA', name:'Area', unit:'px²' },
+  { key:'CIRC', name:'Circ', unit:'ratio' },
+  { key:'ELON', name:'Elon', unit:'ratio' },
+  { key:'COMP', name:'Comp', unit:'ratio' },
+  { key:'ECHO', name:'Echo', unit:'dB' },
+  { key:'STD',  name:'Std',  unit:'dB' },
+  { key:'ENTR', name:'Entr', unit:'bits' },
+  { key:'CNTR', name:'Cntr', unit:'a.u.' },
+  { key:'SFRQ', name:'SFrq', unit:'Hz' },
+  { key:'FLUX', name:'Flux', unit:'a.u.' },
+  { key:'PULS', name:'Puls', unit:'bpm' },
+  { key:'SYMM', name:'Symm', unit:'ratio' },
+  { key:'GRAD', name:'Grad', unit:'a.u.' },
+  { key:'WCRD', name:'WCrd', unit:'ratio' },
+  { key:'RVAR', name:'RVar', unit:'%' },
+  { key:'DIFF', name:'Diff', unit:'a.u.' },
+  { key:'SKEW', name:'Skew', unit:'a.u.' },
+];
+
+// Build metric boxes
+const grid = document.getElementById('metricsGrid');
+FEATURES.forEach(f => {
+  const box = document.createElement('div');
+  box.className = 'metric-box';
+  box.id = 'metric-' + f.key;
+  box.innerHTML = `
+    <div class="metric-name">${f.name}</div>
+    <div class="metric-val" id="mv-${f.key}">—</div>
+    <div class="metric-unit">${f.unit}</div>
+  `;
+  grid.appendChild(box);
+});
+
+// ────────────────────────────────
+// DEMO ULTRASOUND CANVAS
+// ────────────────────────────────
+let usAnim = null, usFrame = 0, usRunning = false;
+const canvas = document.getElementById('usCanvas');
+const ctx = canvas.getContext('2d');
+
+function resizeCanvas() {
+  const wrap = canvas.parentElement;
+  canvas.width = wrap.clientWidth;
+  canvas.height = wrap.clientHeight;
+}
+
+function drawUltrasound(frame) {
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+
+  // Background gradient (ultrasound-like)
+  const bg = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, W*0.7);
+  bg.addColorStop(0, '#050e18');
+  bg.addColorStop(1, '#020810');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // Noise texture
+  const imageData = ctx.getImageData(0, 0, W, H);
+  const d = imageData.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const v = Math.random() * 8;
+    d[i] = v * 0.4; d[i+1] = v * 0.8; d[i+2] = v;
+    d[i+3] = 255;
+  }
+  ctx.putImageData(imageData, 0, 0);
+
+  const t = frame * 0.05;
+  const cx1 = W * 0.38, cy1 = H * 0.52; // Artery
+  const cx2 = W * 0.62, cy2 = H * 0.50; // Vein
+  const r1 = W * 0.085 + Math.sin(t * 2.1) * W * 0.018; // Artery pulsates
+  const r2 = W * 0.110; // Vein static
+
+  // Draw Vein (with optional thrombus)
+  const isDVTDemo = window._demoMode === 'dvt';
+  ctx.save();
+  ctx.shadowBlur = 18; ctx.shadowColor = 'rgba(0,180,140,0.6)';
+
+  // Vein outer
+  ctx.beginPath();
+  ctx.ellipse(cx2, cy2, r2, r2*0.78, 0, 0, Math.PI*2);
+  const veinGrad = ctx.createRadialGradient(cx2, cy2, 0, cx2, cy2, r2);
+  if (isDVTDemo) {
+    veinGrad.addColorStop(0, 'rgba(60,30,20,0.95)');
+    veinGrad.addColorStop(0.5, 'rgba(80,50,30,0.8)');
+    veinGrad.addColorStop(1, 'rgba(0,150,120,0.5)');
+  } else {
+    veinGrad.addColorStop(0, 'rgba(10,60,80,0.9)');
+    veinGrad.addColorStop(0.6, 'rgba(0,100,120,0.7)');
+    veinGrad.addColorStop(1, 'rgba(0,160,140,0.4)');
+  }
+  ctx.fillStyle = veinGrad;
+  ctx.fill();
+
+  // Vein wall
+  ctx.beginPath();
+  ctx.ellipse(cx2, cy2, r2, r2*0.78, 0, 0, Math.PI*2);
+  ctx.strokeStyle = 'rgba(0,200,160,0.7)';
+  ctx.lineWidth = 2.5; ctx.stroke();
+
+  // DVT clot visual
+  if (isDVTDemo) {
+    ctx.beginPath();
+    ctx.ellipse(cx2 + W*0.01, cy2 - H*0.02, r2*0.55, r2*0.42, 0.3, 0, Math.PI*2);
+    const clotGrad = ctx.createRadialGradient(cx2, cy2, 0, cx2, cy2, r2*0.5);
+    clotGrad.addColorStop(0, 'rgba(180,80,60,0.85)');
+    clotGrad.addColorStop(1, 'rgba(120,40,30,0.5)');
+    ctx.fillStyle = clotGrad;
+    ctx.fill();
+    // Clot label
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(255,100,80,0.9)';
+    ctx.font = `bold ${W*0.022}px monospace`;
+    ctx.fillText('THROMBUS', cx2 - W*0.05, cy2 - r2*0.9);
+  }
+
+  ctx.restore();
+
+  // Draw Artery
+  ctx.save();
+  ctx.shadowBlur = 14; ctx.shadowColor = 'rgba(0,100,200,0.5)';
+  ctx.beginPath();
+  ctx.ellipse(cx1, cy1, r1, r1*0.85, 0, 0, Math.PI*2);
+  const artGrad = ctx.createRadialGradient(cx1, cy1, 0, cx1, cy1, r1);
+  artGrad.addColorStop(0, 'rgba(20,80,160,0.9)');
+  artGrad.addColorStop(1, 'rgba(0,60,120,0.5)');
+  ctx.fillStyle = artGrad;
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(cx1, cy1, r1, r1*0.85, 0, 0, Math.PI*2);
+  ctx.strokeStyle = 'rgba(60,160,240,0.8)';
+  ctx.lineWidth = 2; ctx.stroke();
+  ctx.restore();
+
+  // YOLO Bounding boxes (shown when processing)
+  if (window._showBoxes) {
+    ctx.save();
+    ctx.setLineDash([4,3]);
+
+    // Vein box
+    ctx.strokeStyle = '#00d4b1'; ctx.lineWidth = 2;
+    ctx.strokeRect(cx2 - r2*1.3, cy2 - r2*1.05, r2*2.6, r2*2.1);
+    ctx.fillStyle = 'rgba(0,212,177,0.12)';
+    ctx.fillRect(cx2 - r2*1.3, cy2 - r2*1.05, r2*2.6, r2*2.1);
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#00d4b1'; ctx.font = `${W*0.018}px monospace`;
+    ctx.fillText('VEIN 0.94', cx2 - r2*1.25, cy2 - r2*1.1);
+
+    // Artery box
+    ctx.setLineDash([4,3]);
+    ctx.strokeStyle = '#0084ff'; ctx.lineWidth = 2;
+    ctx.strokeRect(cx1 - r1*1.3, cy1 - r1*1.15, r1*2.6, r1*2.3);
+    ctx.fillStyle = 'rgba(0,132,255,0.1)';
+    ctx.fillRect(cx1 - r1*1.3, cy1 - r1*1.15, r1*2.6, r1*2.3);
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#0084ff';
+    ctx.fillText('ARTERY 0.91', cx1 - r1*1.25, cy1 - r1*1.2);
+    ctx.restore();
+  }
+
+  // Segmentation mask
+  if (window._showMask) {
+    ctx.save();
+    ctx.globalAlpha = 0.45;
+    ctx.beginPath();
+    ctx.ellipse(cx2, cy2, r2*0.96, r2*0.74, 0, 0, Math.PI*2);
+    ctx.fillStyle = isDVTDemo ? 'rgba(255,80,80,0.6)' : 'rgba(0,212,177,0.5)';
+    ctx.fill();
+    ctx.globalAlpha = 0.5;
+    ctx.beginPath();
+    ctx.ellipse(cx1, cy1, r1*0.9, r1*0.75, 0, 0, Math.PI*2);
+    ctx.fillStyle = 'rgba(0,120,255,0.5)';
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Scan line
+  const scanY = (H * ((frame % 40) / 40)) | 0;
+  const scanGrad = ctx.createLinearGradient(0, scanY-20, 0, scanY+20);
+  scanGrad.addColorStop(0, 'transparent');
+  scanGrad.addColorStop(0.5, 'rgba(0,212,177,0.18)');
+  scanGrad.addColorStop(1, 'transparent');
+  ctx.fillStyle = scanGrad;
+  ctx.fillRect(0, scanY-20, W, 40);
+
+  // Frame / time labels update
+  document.getElementById('frameNum').textContent = String(frame).padStart(3, '0');
+  document.getElementById('elapsedTime').textContent = (frame * 0.033).toFixed(2);
+}
+
+function startCanvasAnim() {
+  if (usAnim) cancelAnimationFrame(usAnim);
+  usRunning = true;
+  const loop = () => {
+    if (!usRunning) return;
+    drawUltrasound(usFrame++);
+    usAnim = requestAnimationFrame(loop);
+  };
+  loop();
+}
+
+// ────────────────────────────────
+// FILE UPLOAD
+// ────────────────────────────────
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) handleFile(file);
+});
+
+fileInput.addEventListener('change', () => {
+  if (fileInput.files[0]) handleFile(fileInput.files[0]);
+});
+
+function handleFile(file) {
+  window._demoMode = null;
+  window._showBoxes = false; window._showMask = false;
+  document.getElementById('videoPreview').style.display = 'block';
+  resizeCanvas(); startCanvasAnim();
+  document.getElementById('analyzeBtn').disabled = false;
+  dropZone.style.display = 'none';
+  showModal('📁 视频载入成功',
+    `<strong style="color:var(--accent)">${file.name}</strong><br>
+    大小：${(file.size/1024/1024).toFixed(1)} MB<br><br>
+    点击「开始分析」启动完整 AI 推断流水线。`);
+}
+
+// ────────────────────────────────
+// DEMO MODE
+// ────────────────────────────────
+function runDemo() {
+  window._demoMode = Math.random() > 0.4 ? 'dvt' : 'normal';
+  window._showBoxes = false; window._showMask = false;
+  document.getElementById('videoPreview').style.display = 'block';
+  dropZone.style.display = 'none';
+  resizeCanvas(); startCanvasAnim();
+  document.getElementById('analyzeBtn').disabled = false;
+  startAnalysis();
+}
+
+// ────────────────────────────────
+// ANALYSIS PIPELINE SIMULATION
+// ────────────────────────────────
+const STEPS = [
+  { id:'ps0', dur:900,  sub:'解码 & 预处理帧序列…' },
+  { id:'ps1', dur:1400, sub:'首帧 YOLO 推断 + 先验框补全…', showBoxes: true },
+  { id:'ps2', dur:2200, sub:'SAM2+LoRA 多帧传播分割…', showMask: true },
+  { id:'ps3', dur:1100, sub:'提取 VCR · VDR · VARR · MVAR 等 21 维特征…' },
+  { id:'ps4', dur:700,  sub:'阈值分类 + 置信度评分…' },
+];
+
+function startAnalysis() {
+  document.getElementById('progressPanel').style.display = 'block';
+  document.getElementById('analyzeBtn').disabled = true;
+  document.getElementById('resultEmpty').style.display = 'none';
+  document.getElementById('resultDisplay').style.display = 'none';
+  resetProgress();
+  runStep(0, 0);
+}
+
+function resetProgress() {
+  STEPS.forEach(s => {
+    const el = document.getElementById(s.id);
+    el.className = 'p-step';
+    const st = document.getElementById(s.id + '-s');
+    st.className = 'p-step-status wait'; st.textContent = 'WAIT';
+  });
+  document.getElementById('progressBar').style.width = '0%';
+}
+
+function runStep(idx, elapsed) {
+  if (idx >= STEPS.length) { onAnalysisDone(); return; }
+  const s = STEPS[idx];
+  const el = document.getElementById(s.id);
+  const st = document.getElementById(s.id + '-s');
+  el.className = 'p-step active';
+  st.className = 'p-step-status run';
+  st.innerHTML = `<span class="spinner"></span>RUN`;
+  if (s.showBoxes) window._showBoxes = true;
+  if (s.showMask) window._showMask = true;
+
+  const prog = ((idx + 1) / STEPS.length * 100).toFixed(0);
+  setTimeout(() => {
+    document.getElementById('progressBar').style.width = prog + '%';
+  }, 50);
+
+  setTimeout(() => {
+    el.className = 'p-step done';
+    st.className = 'p-step-status ok'; st.textContent = 'DONE ✓';
+    runStep(idx + 1, elapsed + s.dur);
+  }, s.dur);
+}
+
+function onAnalysisDone() {
+  const isDVT = window._demoMode === 'dvt' || (!window._demoMode && Math.random() > 0.5);
+  window._lastResult = isDVT;
+
+  // Confidence scores
+  const dvtScore = isDVT
+    ? (0.78 + Math.random() * 0.18).toFixed(3)
+    : (0.08 + Math.random() * 0.18).toFixed(3);
+  const normScore = (1 - parseFloat(dvtScore)).toFixed(3);
+
+  // Show result
+  const badge = document.getElementById('diagBadge');
+  badge.className = isDVT ? 'diagnosis-badge dvt' : 'diagnosis-badge normal';
+  document.getElementById('diagLabel').textContent = isDVT ? '⚠ DVT DETECTED' : '✓ NORMAL';
+  document.getElementById('diagResult').textContent = isDVT ? '深静脉血栓' : '正常';
+  document.getElementById('diagConf').textContent =
+    `Confidence: ${(isDVT ? dvtScore : normScore) * 100 | 0}%`;
+  document.getElementById('dvtPct').textContent = (dvtScore * 100).toFixed(1) + '%';
+  document.getElementById('normPct').textContent = (normScore * 100).toFixed(1) + '%';
+
+  document.getElementById('resultDisplay').style.display = 'block';
+
+  setTimeout(() => {
+    document.getElementById('dvtBar').style.width = (dvtScore * 100) + '%';
+    document.getElementById('normBar').style.width = (normScore * 100) + '%';
+  }, 100);
+
+  // Fill 21-dim features
+  const anomalyKeys = isDVT ? ['VCR','VDR','MVAR','FLUX','RVAR'] : [];
+  FEATURES.forEach(f => {
+    const el = document.getElementById('mv-' + f.key);
+    const isAnom = anomalyKeys.includes(f.key);
+    let val;
+    if (f.unit === 'ratio') val = (Math.random() * 0.6 + (isAnom ? 0.3 : 0.1)).toFixed(3);
+    else if (f.unit === '%') val = (Math.random() * 30 + (isAnom ? 20 : 5)).toFixed(1);
+    else if (f.unit === 'dB') val = (Math.random() * 15 + 10).toFixed(1);
+    else if (f.unit === 'Hz') val = (Math.random() * 5 + 0.5).toFixed(2);
+    else if (f.unit === 'bpm') val = (Math.floor(Math.random() * 40 + 55));
+    else if (f.unit === 'px²') val = (Math.floor(Math.random() * 3000 + 800));
+    else if (f.unit === 'bits') val = (Math.random() * 3 + 1).toFixed(2);
+    else val = (Math.random() * 2 - 1).toFixed(3);
+    el.textContent = val;
+    el.className = 'metric-val' + (isAnom ? ' anomaly' : '');
+  });
+
+  // Draw chart
+  drawFeatureChart(isDVT);
+
+  showModal(
+    isDVT ? '⚠ 检测结果：DVT 阳性' : '✓ 检测结果：正常',
+    isDVT
+      ? `系统检测到<strong style="color:var(--danger)">深静脉血栓 (DVT)</strong> 的典型征象：<br><br>
+         • VCR / VDR 异常升高（静脉面积/直径变化比例异常）<br>
+         • MVAR 方差显著增大，提示管腔回声不均匀<br>
+         • FLUX 血流动力学特征异常<br><br>
+         置信度：<strong>${(dvtScore * 100) | 0}%</strong><br><br>
+         <em style="color:var(--text-dim)">⚠ 本系统仅供辅助诊断参考，最终诊断请结合临床医生判断。</em>`
+      : `系统判定为<strong style="color:var(--accent)">正常</strong>，未检测到明显 DVT 征象：<br><br>
+         • 静脉管腔回声均匀，可压缩性良好<br>
+         • VCR / VDR 指标处于正常范围<br>
+         • 血流动力学特征无异常<br><br>
+         置信度：<strong>${(normScore * 100) | 0}%</strong>`
+  );
+}
+
+// ────────────────────────────────
+// CHART (simple canvas chart)
+// ────────────────────────────────
+let chartAnimId = null;
+let activeTab = 'vcr';
+
+function drawFeatureChart(isDVT) {
+  const canvas = document.getElementById('featureChart');
+  const placeholder = document.getElementById('chartPlaceholder');
+  placeholder.style.display = 'none';
+
+  const W = canvas.width = canvas.offsetWidth;
+  const H = canvas.height = canvas.offsetHeight;
+  const ctx2 = canvas.getContext('2d');
+
+  const frames = 60;
+  const points = Array.from({length: frames}, (_, i) => {
+    const t = i / frames;
+    const base = isDVT
+      ? 0.2 + 0.5 * Math.sin(t * Math.PI * 2) + Math.random() * 0.12
+      : 0.15 + 0.12 * Math.sin(t * Math.PI * 4) + Math.random() * 0.06;
+    return Math.max(0.02, Math.min(0.98, base));
+  });
+
+  const PADT = 30, PADB = 20, PADL = 40, PADR = 20;
+  const plotW = W - PADL - PADR;
+  const plotH = H - PADT - PADB;
+
+  if (chartAnimId) cancelAnimationFrame(chartAnimId);
+
+  let drawn = 0;
+  const color = isDVT ? '#ff4e6a' : '#00d4b1';
+
+  function animChart() {
+    ctx2.clearRect(0, 0, W, H);
+
+    // Grid
+    ctx2.strokeStyle = 'rgba(255,255,255,0.04)';
+    ctx2.lineWidth = 1;
+    for (let y = 0; y <= 4; y++) {
+      const py = PADT + (plotH * y / 4);
+      ctx2.beginPath(); ctx2.moveTo(PADL, py); ctx2.lineTo(W - PADR, py); ctx2.stroke();
+    }
+
+    // Baseline
+    ctx2.strokeStyle = 'rgba(255,255,255,0.15)'; ctx2.lineWidth = 1;
+    ctx2.setLineDash([4, 4]);
+    const baseY = PADT + plotH * 0.5;
+    ctx2.beginPath(); ctx2.moveTo(PADL, baseY); ctx2.lineTo(W - PADR, baseY); ctx2.stroke();
+    ctx2.setLineDash([]);
+
+    // Gradient fill
+    const grad = ctx2.createLinearGradient(0, PADT, 0, H - PADB);
+    grad.addColorStop(0, color + '55');
+    grad.addColorStop(1, color + '00');
+
+    ctx2.beginPath();
+    ctx2.moveTo(PADL, H - PADB);
+    const n = Math.min(drawn, frames);
+    for (let i = 0; i < n; i++) {
+      const x = PADL + (i / (frames-1)) * plotW;
+      const y = PADT + (1 - points[i]) * plotH;
+      if (i === 0) ctx2.lineTo(x, y); else ctx2.lineTo(x, y);
+    }
+    ctx2.lineTo(PADL + ((n-1)/(frames-1)) * plotW, H - PADB);
+    ctx2.closePath(); ctx2.fillStyle = grad; ctx2.fill();
+
+    // Line
+    ctx2.beginPath();
+    ctx2.strokeStyle = color; ctx2.lineWidth = 2.5;
+    for (let i = 0; i < n; i++) {
+      const x = PADL + (i / (frames-1)) * plotW;
+      const y = PADT + (1 - points[i]) * plotH;
+      if (i === 0) ctx2.moveTo(x, y); else ctx2.lineTo(x, y);
+    }
+    ctx2.stroke();
+
+    // Y labels
+    ctx2.fillStyle = 'rgba(100,150,170,0.8)'; ctx2.font = '10px monospace'; ctx2.textAlign = 'right';
+    ['1.0','0.75','0.50','0.25','0.0'].forEach((l, i) => {
+      ctx2.fillText(l, PADL - 6, PADT + plotH * (i/4) + 4);
+    });
+
+    if (drawn < frames + 8) {
+      drawn += 2;
+      chartAnimId = requestAnimationFrame(animChart);
+    }
+  }
+  animChart();
+}
+
+function switchTab(btn, tab) {
+  document.querySelectorAll('.viz-tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  activeTab = tab;
+  if (window._lastResult !== undefined) drawFeatureChart(window._lastResult);
+}
+
+// ────────────────────────────────
+// MODAL
+// ────────────────────────────────
+function showModal(title, body) {
+  document.getElementById('modalTitle').innerHTML = title;
+  document.getElementById('modalBody').innerHTML = body;
+  document.getElementById('modalOverlay').classList.add('show');
+}
+function closeModal() {
+  document.getElementById('modalOverlay').classList.remove('show');
+}
+document.getElementById('modalOverlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('modalOverlay')) closeModal();
+});
+
+// ────────────────────────────────
+// RESIZE
+// ────────────────────────────────
+window.addEventListener('resize', () => {
+  if (document.getElementById('videoPreview').style.display !== 'none') resizeCanvas();
+  if (window._lastResult !== undefined) drawFeatureChart(window._lastResult);
+});
+</script>
+</body>
+</html>
