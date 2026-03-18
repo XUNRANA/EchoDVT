@@ -511,6 +511,51 @@ main.contain,
     line-height: 1.7;
 }
 
+.dashboard-intro-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+    margin-bottom: 18px;
+}
+
+.dashboard-intro-card {
+    min-height: 140px;
+    padding: 20px 22px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+    background: linear-gradient(180deg, #ffffff 0%, #f9fbfe 100%);
+    box-shadow: var(--shadow-sm);
+}
+
+.dashboard-intro-primary {
+    background: linear-gradient(135deg, #eff6ff 0%, #ffffff 100%);
+    border-color: rgba(29, 78, 216, 0.16);
+}
+
+.dashboard-intro-eyebrow {
+    color: var(--primary);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+}
+
+.dashboard-intro-title {
+    color: var(--text-main);
+    font-size: 24px;
+    line-height: 1.15;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    margin-bottom: 10px;
+}
+
+.dashboard-intro-copy {
+    color: var(--text-body);
+    font-size: 13px;
+    line-height: 1.8;
+}
+
 .stat-row {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -671,6 +716,13 @@ button.secondary {
 button.secondary:hover {
     background: var(--bg-muted) !important;
     border-color: var(--border-strong) !important;
+}
+
+@media (max-width: 960px) {
+    .dashboard-intro-grid,
+    .app-meta-strip {
+        grid-template-columns: 1fr;
+    }
 }
 
 input,

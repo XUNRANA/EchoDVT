@@ -792,7 +792,7 @@ def _run_comprehensive_benchmark(state: dict):
         force_recompute=True,
         run_test_if_needed=True,
     )
-    status_html, dataset_html, error_html, chart, workflow_html = _refresh_dashboard(state)
+    intro_html, status_html, dataset_html, error_html, chart = _refresh_dashboard_panel(state)
     overall = comp.get("overall", {})
     if comp.get("ready") and int(overall.get("total", 0)) > 0:
         status = (
@@ -802,7 +802,7 @@ def _run_comprehensive_benchmark(state: dict):
         )
     else:
         status = "综合评估已刷新，但当前未读取到有效的统一模型指标。"
-    return status_html, dataset_html, error_html, chart, workflow_html, status
+    return intro_html, status_html, dataset_html, error_html, chart, status
 
 
 def _run_test_batch_with_limits(
@@ -1372,8 +1372,83 @@ def _refresh_dashboard(state: dict):
     return status_html, dataset_html, error_html, chart
 
 
+def _default_dashboard_state() -> Dict:
+    """与 app.py 保持一致的默认状态，用于首屏预渲染。"""
+    return {
+        "current_case": None,
+        "images_dir": None,
+        "masks_dir": None,
+        "frame_files": [],
+        "mask_files": [],
+        "from_video": False,
+        "detections": None,
+        "pred_masks": None,
+        "frame_metrics": [],
+        "vein_areas": [],
+        "artery_areas": [],
+    }
+
+
+def _build_dashboard_intro_html(state: Optional[dict]) -> str:
+    """构建首屏引导区，避免仪表盘在异步刷新前出现大块空白。"""
+    state = state or {}
+    current_case = state.get("current_case") or "未加载案例"
+    frame_count = len(state.get("frame_files") or [])
+    source = "本地视频" if state.get("from_video") else "数据集案例"
+    detection_ready = "已完成" if state.get("detections") else "待检测"
+    segmentation_ready = "已完成" if state.get("pred_masks") else "待分割"
+    diagnosis_ready = "已完成" if state.get("vein_areas") else "待诊断"
+
+    if state.get("current_case"):
+        next_step = (
+            "当前案例已加载。推荐继续前往“一键分析”，或按“目标检测 → 视频分割 → DVT 诊断”逐步检查。"
+        )
+    else:
+        next_step = "先进入“数据输入”加载案例，再执行“一键分析”或逐步检查。"
+
+    return f"""
+    <div class="dashboard-intro-grid">
+        <div class="dashboard-intro-card dashboard-intro-primary">
+            <div class="dashboard-intro-eyebrow">当前状态</div>
+            <div class="dashboard-intro-title">{current_case}</div>
+            <div class="dashboard-intro-copy">
+                来源：{source}<br>
+                帧数：{frame_count}<br>
+                检测：{detection_ready} / 分割：{segmentation_ready} / 诊断：{diagnosis_ready}
+            </div>
+        </div>
+        <div class="dashboard-intro-card">
+            <div class="dashboard-intro-eyebrow">建议路径</div>
+            <div class="dashboard-intro-copy">
+                1. 数据输入：选择 train / val / test 或上传本地视频<br>
+                2. 一键分析：直接得到检测、分割、面积曲线与诊断结果<br>
+                3. 导出报告：在结果确认后导出 PDF
+            </div>
+        </div>
+        <div class="dashboard-intro-card">
+            <div class="dashboard-intro-eyebrow">本页作用</div>
+            <div class="dashboard-intro-copy">
+                这里主要展示系统状态、统一模型指标和数据概览，不承担病例级操作入口。<br>
+                {next_step}
+            </div>
+        </div>
+    </div>
+    """
+
+
+def _refresh_dashboard_panel(state: Optional[dict]):
+    """刷新 Dashboard 首屏的全部内容。"""
+    state = state or _default_dashboard_state()
+    intro_html = _build_dashboard_intro_html(state)
+    status_html, dataset_html, error_html, chart = _refresh_dashboard(state)
+    return intro_html, status_html, dataset_html, error_html, chart
+
+
 def build_dashboard_panel(state: gr.State):
     """构建 Dashboard 首页面板"""
+    initial_intro, initial_status, initial_dataset, initial_error, initial_chart = (
+        _refresh_dashboard_panel(_default_dashboard_state())
+    )
 
     # 简介
     gr.HTML("""
@@ -1382,21 +1457,23 @@ def build_dashboard_panel(state: gr.State):
     </div>
     """)
 
-    status_cards = gr.HTML(elem_id="status-cards")
-    dataset_cards = gr.HTML(elem_id="dataset-cards")
-    distribution_chart = gr.Plot(label="train / val 数据概览")
+    intro_panel = gr.HTML(value=initial_intro, elem_id="dashboard-intro")
+    status_cards = gr.HTML(value=initial_status, elem_id="status-cards")
+    dataset_cards = gr.HTML(value=initial_dataset, elem_id="dataset-cards")
+    distribution_chart = gr.Plot(value=initial_chart, label="train / val 数据概览")
 
-    error_records = gr.HTML(elem_id="error-records")
+    error_records = gr.HTML(value=initial_error, elem_id="error-records")
 
     refresh_btn = gr.Button("刷新仪表盘数据", variant="secondary", size="sm")
 
     refresh_btn.click(
-        fn=_refresh_dashboard,
+        fn=_refresh_dashboard_panel,
         inputs=[state],
-        outputs=[status_cards, dataset_cards, error_records, distribution_chart],
+        outputs=[intro_panel, status_cards, dataset_cards, error_records, distribution_chart],
     )
 
     return (
+        intro_panel,
         status_cards,
         dataset_cards,
         error_records,

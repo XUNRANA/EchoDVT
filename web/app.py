@@ -15,6 +15,7 @@ import gradio as gr
 from tabs.dashboard import (
     build_dashboard_panel, _refresh_dashboard,
     _get_unified_model_meta, _get_dataset_stats,
+    _refresh_dashboard_panel,
 )
 from tabs.upload import build_upload_tab
 from tabs.detection import build_detection_tab
@@ -182,6 +183,7 @@ def build_app():
 
         # Dashboard 自动刷新
         (
+            dash_intro,
             dash_status,
             dash_dataset,
             dash_errors,
@@ -189,9 +191,9 @@ def build_app():
             dash_refresh,
         ) = dash_outs
         app.load(
-            fn=_refresh_dashboard,
+            fn=lambda s: _refresh_dashboard_panel(s),
             inputs=[state],
-            outputs=[dash_status, dash_dataset, dash_errors, dash_chart],
+            outputs=[dash_intro, dash_status, dash_dataset, dash_errors, dash_chart],
         )
 
     return app, custom_css, theme, clock_head
