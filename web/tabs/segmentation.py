@@ -10,14 +10,13 @@ import gradio as gr
 import cv2
 import numpy as np
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict
 import sys
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
-sys.path.insert(0, str(PROJECT_ROOT / "sam2"))
 
-from web.utils.visualization import overlay_masks, bgr_to_rgb, build_comparison_image
+from web.utils.visualization import overlay_masks, bgr_to_rgb
 from web.utils.metrics import compute_frame_metrics, compute_mask_area
 from web.services.inference import DEFAULT_SAM2_VARIANT, DEFAULT_LORA_WEIGHTS
 
@@ -66,27 +65,18 @@ def _run_sam2_segmentation(
         idx = int(mf.stem)
         gt_frame_map[idx] = str(mf)
 
-    # 尝试使用 SAM2 进行真实推理
+    # 使用 SAM2 LoRA 进行推理
     pred_masks_by_idx = None
-    is_lora = "LoRA" in model_variant
     try:
-        if is_lora:
-            # LoRA 变体 — 通过 InferenceService 统一调用
-            from web.services import InferenceService
-            progress(0.05, desc="加载 LoRA SAM2 模型...")
-            pred_masks_by_idx = InferenceService.get().run_segmentation(
-                images_dir=images_dir,
-                detections=detections,
-                num_frames=len(frame_files),
-                use_mfp=use_mfp,
-                variant=model_variant if model_variant in DEFAULT_LORA_WEIGHTS else DEFAULT_SAM2_VARIANT,
-            )
-        else:
-            # Baseline / AM / SM / AV 变体 — 原始 build_sam2_video_predictor
-            pred_masks_by_idx = _run_baseline_sam2(
-                images_dir, detections, set(range(len(frame_files))),
-                model_variant, progress,
-            )
+        from web.services import InferenceService
+        progress(0.05, desc="加载 SAM2 LoRA 模型...")
+        pred_masks_by_idx = InferenceService.get().run_segmentation(
+            images_dir=images_dir,
+            detections=detections,
+            num_frames=len(frame_files),
+            use_mfp=use_mfp,
+            variant=DEFAULT_SAM2_VARIANT,
+        )
     except Exception as e:
         progress(0, desc=f"SAM2 推理失败: {e}，使用 Demo 模式")
 
@@ -147,92 +137,13 @@ def _run_sam2_segmentation(
     state["artery_areas"] = artery_areas
 
     # 汇总报告
-    report = _format_segmentation_report(all_frame_metrics, len(frame_files), model_variant)
+    report = _format_segmentation_report(all_frame_metrics, len(frame_files))
 
     # 首帧可视化
     first_vis = gallery_images[0][0] if gallery_images else None
 
     return state, first_vis, gallery_images, report
 
-
-def _run_baseline_sam2(images_dir, detections, target_indices, model_variant, progress):
-    """运行 Baseline SAM2 推理（非 LoRA 变体）"""
-    from sam2.build_sam import build_sam2_video_predictor
-    import torch
-    from contextlib import nullcontext
-
-    sam2_dir = PROJECT_ROOT / "sam2"
-    config = "configs/sam2/sam2_hiera_l.yaml"
-    ckpt = sam2_dir / "checkpoints" / "sam2_hiera_large.pt"
-
-    if not ckpt.exists():
-        raise FileNotFoundError(f"SAM2 checkpoint 不存在: {ckpt}")
-
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-
-    # 根据模型变体选择不同构建方式
-    use_am = "AM" in model_variant.upper()
-    use_sm = "SM" in model_variant.upper()
-    use_av = "AV" in model_variant.upper()
-
-    predictor = build_sam2_video_predictor(
-        config_file=config,
-        ckpt_path=str(ckpt),
-        device=device,
-        use_adaptive_memory=use_am,
-        use_separate_memory=use_sm,
-        use_av_constraint=use_av,
-    )
-
-    amp_ctx = torch.autocast("cuda", dtype=torch.bfloat16) if device == "cuda" else nullcontext()
-    pred_masks = {}
-
-    with torch.inference_mode():
-        with amp_ctx:
-            inference_state = predictor.init_state(
-                video_path=str(images_dir),
-                async_loading_frames=False,
-            )
-            video_h = int(inference_state["video_height"])
-            video_w = int(inference_state["video_width"])
-
-            # 首帧添加 box prompt
-            for cls_name, obj_id in [("artery", 1), ("vein", 2)]:
-                det = detections[cls_name]
-                predictor.add_new_points_or_box(
-                    inference_state=inference_state,
-                    frame_idx=0,
-                    obj_id=obj_id,
-                    box=np.asarray(det["box"], dtype=np.float32),
-                )
-
-            # 传播
-            obj_id_to_cls = {1: "artery", 2: "vein"}
-            for out_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(
-                inference_state=inference_state,
-                start_frame_idx=0,
-            ):
-                semantic = np.zeros((video_h, video_w), dtype=np.uint8)
-                for i, oid in enumerate(out_obj_ids):
-                    cls_name = obj_id_to_cls.get(int(oid))
-                    if cls_name is None:
-                        continue
-                    logits = out_mask_logits[i].detach().float().cpu().numpy().squeeze()
-                    if logits.shape != (video_h, video_w):
-                        logits = cv2.resize(logits, (video_w, video_h), interpolation=cv2.INTER_LINEAR)
-                    mask_bin = logits > 0
-                    cls_val = 1 if cls_name == "artery" else 2
-                    semantic[mask_bin] = cls_val
-
-                pred_masks[out_idx] = {
-                    "semantic": semantic,
-                    "artery": (semantic == 1),
-                    "vein": (semantic == 2),
-                }
-
-            predictor.reset_state(inference_state)
-
-    return pred_masks
 
 
 def _demo_from_gt(gt_frame_map, images_dir, frame_files):
@@ -261,10 +172,10 @@ def _demo_from_gt(gt_frame_map, images_dir, frame_files):
     return pred_masks
 
 
-def _format_segmentation_report(metrics_list, total_frames, variant):
+def _format_segmentation_report(metrics_list, total_frames):
     """生成分割报告"""
     lines = [f"### 🔬 分割完成\n"]
-    lines.append(f"- **模型变体**: {variant}")
+    lines.append(f"- **模型变体**: {DEFAULT_SAM2_VARIANT}")
     lines.append(f"- **总帧数**: {total_frames}")
     lines.append(f"- **已评估帧**: {len(metrics_list)} (有 GT 标注的帧)")
 
