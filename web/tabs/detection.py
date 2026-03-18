@@ -157,15 +157,13 @@ def build_detection_tab(state: gr.State):
 
             detect_btn = gr.Button("🎯 运行检测", variant="primary", size="lg")
 
-            detection_report = gr.Markdown(f"""
-> 💡 **操作指引**: 当前 UI 已固定最优 YOLO 检测配置 `{_get_fixed_yolo_model_display()}`，点击「运行检测」即可。
-> 缺失检测框会通过统计先验自动补全。
+            detection_report = gr.Markdown("""
+> 💡 已固定最优 YOLO 权重（Step5 斑点噪声+平移+缩放），点击「运行检测」即可。缺失框自动补全。
 """)
 
         with gr.Column(scale=3):
             detection_image = gr.Image(
                 label="首帧检测结果（红色=动脉，绿色=静脉）",
-                height=400,
                 type="numpy",
             )
 

@@ -7,5 +7,9 @@ sam2/predictions/
 *.pt
 __pycache__/
 *.pyc
+*.pyo
+.pytest_cache/
 checkpoints/
 web/assets/cache/*.json
+*.log
+nohup.out

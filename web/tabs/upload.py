@@ -348,22 +348,35 @@ def _select_test_source(test_subset: str):
 
 
 def _build_preview_placeholder(title: str, subtitle: str, width: int = 1200, height: int = 680) -> np.ndarray:
-    canvas = np.full((height, width, 3), 248, dtype=np.uint8)
-    cv2.rectangle(canvas, (48, 52), (width - 48, height - 52), (226, 232, 240), 2)
-    cv2.rectangle(canvas, (92, 96), (width - 92, height - 96), (219, 234, 254), 2)
-    cv2.putText(canvas, title, (118, 230), cv2.FONT_HERSHEY_SIMPLEX, 1.25, (37, 99, 235), 3, cv2.LINE_AA)
-    cv2.putText(canvas, subtitle, (118, 310), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (100, 116, 139), 2, cv2.LINE_AA)
-    cv2.putText(
-        canvas,
-        "Load a case or upload a local ultrasound video to begin.",
-        (118, 390),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.72,
-        (148, 163, 184),
-        2,
-        cv2.LINE_AA,
-    )
-    return canvas
+    from PIL import Image, ImageDraw, ImageFont
+    import matplotlib.font_manager as fm
+
+    img = Image.new("RGB", (width, height), (248, 248, 248))
+    draw = ImageDraw.Draw(img)
+    draw.rectangle([(48, 52), (width - 48, height - 52)], outline=(226, 232, 240), width=2)
+    draw.rectangle([(92, 96), (width - 92, height - 96)], outline=(219, 234, 254), width=2)
+
+    # 查找中文字体
+    font_path = None
+    for name in ("SimHei", "WenQuanYi Micro Hei", "Noto Sans CJK SC",
+                 "Source Han Sans SC", "Droid Sans Fallback"):
+        try:
+            p = fm.findfont(name, fallback_to_default=False)
+            if p and "LastResort" not in p:
+                font_path = p
+                break
+        except Exception:
+            continue
+
+    font_lg = ImageFont.truetype(font_path, 36) if font_path else ImageFont.load_default()
+    font_md = ImageFont.truetype(font_path, 22) if font_path else ImageFont.load_default()
+    font_sm = ImageFont.truetype(font_path, 20) if font_path else ImageFont.load_default()
+
+    draw.text((118, 190), title, fill=(37, 99, 235), font=font_lg)
+    draw.text((118, 260), subtitle, fill=(100, 116, 139), font=font_md)
+    draw.text((118, 320), "请先加载案例或上传本地超声视频", fill=(148, 163, 184), font=font_sm)
+
+    return np.array(img)
 
 
 def build_upload_tab(state: gr.State):
@@ -377,8 +390,8 @@ def build_upload_tab(state: gr.State):
     )
     selector_status_html = _build_dataset_selector_status_html("val", "normal")
     preview_placeholder = _build_preview_placeholder(
-        "Preview panel",
-        "Supports train / val / test cases and local ultrasound video upload",
+        "预览面板",
+        "支持从数据集选择案例或上传本地超声视频",
     )
 
     with gr.Row(equal_height=False):

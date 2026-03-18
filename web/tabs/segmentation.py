@@ -217,15 +217,13 @@ def build_segmentation_tab(state: gr.State):
 
             segment_btn = gr.Button("🔬 开始分割", variant="primary", size="lg")
 
-            seg_report = gr.Markdown(f"""
-> 💡 **操作指引**: 当前 UI 已固定最优 SAM2 分割配置 `{_get_fixed_sam2_weight_display()}`，点击「开始分割」即可。
-> 分割完成后可在右侧图库中查看各帧分割结果。
+            seg_report = gr.Markdown("""
+> 💡 已固定最优 SAM2 配置（LoRA r8），点击「开始分割」即可。分割完成后右侧图库查看结果。
 """)
 
         with gr.Column(scale=3):
             seg_preview = gr.Image(
                 label="分割预览（红色=动脉，绿色=静脉）",
-                height=400,
                 type="numpy",
             )
             seg_gallery = gr.Gallery(

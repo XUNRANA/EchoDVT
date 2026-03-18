@@ -43,13 +43,21 @@ scipy
 ## 系统架构
 
 ```
-用户交互流程:
+页面布局:
 
-  📊 仪表盘（综合指标 + 误判案例分析）
+  ┌─ 顶部栏（标题 + 状态指示 + 北京时间）─────────────────┐
+  ├─ 流水线流程图（超声输入→YOLO检测→SAM2分割→特征提取→二分类→可视化）─┤
+  ├─ 统计摘要行（准确率 | 特征维度 | 样本量 | 模型状态）────────┤
+  ├─ 水平标签导航（7 个 Tab）───────────────────────┤
+  └─ Tab 内容区（max-width 1400px 居中）──────────────────┘
+
+功能流程:
+
+  📊 仪表盘（系统概览）
        │
-       ├──→ 📤 数据输入 ──→ 🎯 YOLO 检测 ──→ 🔬 SAM2 分割 ──→ 🩺 DVT 诊断 ──→ 📈 定量评估
+       ├──→ 📤 数据输入 ──→ 🎯 YOLO 检测 ──→ 🔬 SAM2 分割 ──→ 🩺 DVT 诊断
        │
-       └──→ 🚀 一键分析（一步完成检测→分割→诊断）
+       └──→ 🚀 一键分析（一步完成检测→分割→诊断→报告）──→ 📄 导出报告
 ```
 
 ### 核心技术栈
@@ -66,46 +74,46 @@ scipy
 
 ## 功能模块（7 个 Tab）
 
-> 当前 UI 使用“侧边栏”单导航，默认入口与顺序为：  
-> **📊 仪表盘 → 📤 数据输入 → 🎯 目标检测 → 🔬 视频分割 → 🩺 DVT 诊断 → 📈 定量评估 → 🚀 一键分析**。
+> 顶部水平标签导航，Tab 顺序为：
+> **📊 仪表盘 → 📤 数据输入 → 🚀 一键分析 → 🎯 目标检测 → 🔬 视频分割 → 🩺 DVT 诊断 → 📄 导出报告**
 
 ### Tab 1: 📊 仪表盘 (`tabs/dashboard.py`)
 
-系统总览与运营入口：
-- GPU/内存/模型状态、数据集统计、验证/测试准确率
-- 综合评估：`train` 全量 + `val` 全量 + `test(normal=500, patient=50)` 的综合指标
-- 当前流程进度（加载/检测/分割/诊断/评估）
-- 误判案例分析（含误判原因说明）
-- 快速操作：
-  - 自动加载下一个验证集案例
-  - 运行全流程分析
-  - 运行综合本地评估（固定配置：`train + val + test 500/50`）
+系统概览：
+- GPU/内存/模型状态卡片
+- 数据集统计（train/val 数量、正常/患者分布）
+- 统一模型准确率概览（train + val）
+- 数据分布图表
 
 ---
 
 ### Tab 2: 📤 数据输入 (`tabs/upload.py`)
 
-支持三种入口：
-- 从 `val/train` 选择案例
-- 勾选 **“从 test 集加载案例”** 后选择 `test/normal` 或 `test/patient`
+支持两种入口：
+- 从 `val/train` 数据集选择案例
 - 上传本地视频（`gr.File`）
 
-并写入全局 `gr.State`：
-- `images_dir / masks_dir / frame_files`
-- 案例元信息、首帧预览与采样帧图库
+写入全局 `gr.State`：首帧预览、采样帧图库、路径元信息
 
 ---
 
-### Tab 3: 🎯 目标检测 (`tabs/detection.py`)
+### Tab 3: 🚀 一键分析 (`tabs/pipeline.py`)
 
-在首帧上运行 YOLO 检测，输出动脉/静脉框，并写入 `state["detections"]`。
+一键执行：检测 → 分割 → 特征 → 诊断，输出完整可视化结果。
+- 默认参数：`LoRA r8`、`MFP=False`、`conf=0.1`
+- 诊断报告紧凑展示，21 维特征表可折叠展开
+
+---
+
+### Tab 4: 🎯 目标检测 (`tabs/detection.py`)
+
+在首帧上运行 YOLO 检测，输出动脉/静脉框，并写入 `state[“detections”]`。
 - 固定使用最优 YOLO 权重
 - 支持先验补全与重叠修正
-- 无权重时支持 GT 降级演示
 
 ---
 
-### Tab 4: 🔬 视频分割 (`tabs/segmentation.py`)
+### Tab 5: 🔬 视频分割 (`tabs/segmentation.py`)
 
 使用首帧检测框作为 prompt，调用 SAM2（LoRA / Baseline）做全视频分割。
 - 写入 `pred_masks / vein_areas / artery_areas / frame_metrics`
@@ -114,7 +122,7 @@ scipy
 
 ---
 
-### Tab 5: 🩺 DVT 诊断 (`tabs/diagnosis.py`)
+### Tab 6: 🩺 DVT 诊断 (`tabs/diagnosis.py`)
 
 基于面积时序与 21 维特征进行 DVT 判断：
 - 输出诊断摘要卡、面积曲线和详细报告
@@ -123,20 +131,11 @@ scipy
 
 ---
 
-### Tab 6: 📈 定量评估 (`tabs/evaluation.py`)
+### Tab 7: 📄 导出报告 (`tabs/evaluation.py`)
 
-对有 GT 的帧计算逐帧与病例级指标：
-- Dice / IoU / Mean Dice / mIoU
-- 曲线图、汇总表、逐帧明细表
-- 仅在存在标注时生效
-
----
-
-### Tab 7: 🚀 一键分析 (`tabs/pipeline.py`)
-
-一键执行：检测 → 分割 → 特征 → 诊断，输出完整可视化结果与报告。
-- 默认参数：`LoRA r8`、`MFP=False`、`conf=0.1`
-- 结果直接返回在当前页面，不再额外生成 Dashboard 日志记录
+生成并下载 PDF 诊断报告：
+- 汇总检测、分割、诊断全部结果
+- 一键生成 PDF 文件并提供下载
 
 ---
 
@@ -144,28 +143,27 @@ scipy
 
 ```
 web/
-├── app.py                  # 应用入口，构建 Gradio Blocks + 浅色医疗主题
+├── app.py                  # 应用入口（header + 流水线 + 统计行 + 水平 Tabs + footer）
 ├── README.md               # 本文件
 ├── services/               # 推理服务层
 │   ├── __init__.py
 │   └── inference.py        # InferenceService 单例：惰性加载 YOLO/SAM2/分类器
 ├── tabs/                   # 7 个功能 Tab
 │   ├── __init__.py
-│   ├── dashboard.py        # Tab 1: 仪表盘（总览 + 快速操作）
-│   ├── upload.py           # Tab 2: 数据输入（含 test 勾选加载 + 视频上传）
-│   ├── detection.py        # Tab 3: YOLO 血管检测
-│   ├── segmentation.py     # Tab 4: SAM2 视频分割（7 种变体）
-│   ├── diagnosis.py        # Tab 5: DVT 诊断（21 维特征）
-│   ├── evaluation.py       # Tab 6: 定量评估（Dice/mIoU）
-│   ├── pipeline.py         # Tab 7: 一键全流程分析
-│   └── comparison.py       # 扩展模块：模型变体对比（未默认挂载）
+│   ├── dashboard.py        # Tab 1: 仪表盘（系统概览）
+│   ├── upload.py           # Tab 2: 数据输入（数据集 + 视频上传）
+│   ├── pipeline.py         # Tab 3: 一键全流程分析
+│   ├── detection.py        # Tab 4: YOLO 血管检测
+│   ├── segmentation.py     # Tab 5: SAM2 视频分割
+│   ├── diagnosis.py        # Tab 6: DVT 诊断（21 维特征）
+│   └── evaluation.py       # Tab 7: 导出报告（PDF 生成）
 ├── utils/                  # 工具函数
 │   ├── __init__.py
 │   ├── visualization.py    # 检测框绘制、Mask 叠加、对比图生成
 │   ├── metrics.py          # Dice/IoU 计算、DVT 诊断、Case 汇总
 │   └── chart_style.py      # Matplotlib 浅色主题 + 中文字体自动检测
 └── assets/
-    └── custom.css          # 自定义浅色主题样式
+    └── custom.css          # 自定义浅色主题样式（水平标签 + 流水线 + 统计行）
 ```
 
 ---
@@ -238,11 +236,12 @@ gr.State (全局状态字典)
 
 ## UI 设计
 
-- **浅色医疗主题**: 基于 `gr.themes.Base` + 自定义 CSS
-- **渐变标题卡片**: 每个 Tab 顶部有统一的渐变色标题区
-- **分栏 Dashboard 布局**: 顶栏 + 左侧单导航 + 右侧工作区
-- **轻量微交互**: 按钮 hover、卡片 hover、渐变欢迎横幅
-- **配色方案**: 
+- **浅色医疗主题**: 基于 `gr.themes.Base` + 自定义 CSS，简洁专业
+- **流水线流程图**: 页面顶部 6 步静态流程卡片（超声输入→可视化）
+- **统计摘要行**: 4 列关键指标（准确率 / 特征维度 / 样本量 / 模型状态），构建时计算
+- **水平标签导航**: 居中 pill 样式，sticky 固定在 header 下方
+- **内容区居中**: 最大宽度 1400px，自适应
+- **配色方案**:
   - 动脉: `#ef4444` (红色)
-  - 静脉: `#22c55e` (绿色)  
-  - 主色: `#2563eb` → `#06b6d4` (蓝-青渐变)
+  - 静脉: `#22c55e` (绿色)
+  - 主色: `#2563eb` (蓝)
