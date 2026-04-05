@@ -1,0 +1,5 @@
+配置	可训练参数量	Mean Dice	Artery Dice	Vein Dice	相对于Baseline的提升
+Baseline	0（无微调）	0.7358	0.8407	0.6308	-
+LoRA r4	~0.25M	0.7694	0.8387	0.7001	+3.4%
+LoRA r8	~0.50M	0.7692	0.8354	0.7029	+3.3%
+LoRA r8+MFP	~0.50M	0.7853	0.8540	0.7166	+5.0%

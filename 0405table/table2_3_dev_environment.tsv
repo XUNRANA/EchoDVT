@@ -1,0 +1,15 @@
+类别	项目	配置
+硬件	GPU	NVIDIA A100-SXM4-40GB，40 GB ×4（当前主机实测；实验与推理通常使用单卡）
+软件	操作系统	Ubuntu 22.04.5 LTS（Linux 5.15.0-173-generic）
+软件	环境管理	Conda，项目环境名为 echodvt
+软件	开发语言	Python 3.10.20
+软件	深度学习框架	PyTorch 2.10.0+cu128
+软件	CUDA	12.8（PyTorch 构建版本）
+软件	目标检测库	Ultralytics 8.4.21（YOLOv8）
+软件	视频分割库	SAM2 1.0（Meta 官方代码库，基于其进行 LoRA、训练器和后处理二次开发）
+软件	Web 框架	Gradio 6.9.0
+软件	图像处理库	OpenCV 4.13.0
+软件	可视化库	Matplotlib 3.10.8
+软件	分类库	scikit-learn 1.7.2
+软件	数据分析库	pandas 2.3.3
+软件	科学计算库	SciPy 1.15.3

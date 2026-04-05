@@ -50,23 +50,28 @@ def _generate_pdf_report(state: dict, progress=gr.Progress(track_tqdm=True)):
     unified_threshold = get_unified_threshold()
     diag_result = compute_dvt_diagnosis(vein_areas, threshold=unified_threshold)
 
-    # 尝试 ML 诊断
+    # 尝试 ML 诊断 - 优先使用已收集好的 masks_list
     ml_result = None
     full_features = None
-    if pred_masks:
+    masks_list = state.get("masks_list")
+
+    # 如果没有 masks_list，则从 pred_masks 构建
+    if masks_list is None and pred_masks:
+        num_frames = len(frame_files)
+        masks_list = []
+        for i in range(num_frames):
+            entry = pred_masks.get(i)
+            if entry is not None:
+                masks_list.append(entry["semantic"])
+            else:
+                if masks_list:
+                    masks_list.append(np.zeros_like(masks_list[-1]))
+                else:
+                    masks_list.append(np.zeros((256, 256), dtype=np.uint8))
+
+    if masks_list and len(masks_list) > 0:
         try:
             from web.services import InferenceService
-            num_frames = len(frame_files)
-            masks_list = []
-            for i in range(num_frames):
-                entry = pred_masks.get(i)
-                if entry is not None:
-                    masks_list.append(entry["semantic"])
-                else:
-                    if masks_list:
-                        masks_list.append(np.zeros_like(masks_list[-1]))
-                    else:
-                        masks_list.append(np.zeros((256, 256), dtype=np.uint8))
             ml_result = InferenceService.get().run_diagnosis(masks_list)
             full_features = ml_result.get("features")
         except Exception:

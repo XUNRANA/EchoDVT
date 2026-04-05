@@ -1,0 +1,6 @@
+步骤	增强配置	训练脚本	说明
+Step 1	无增强	train_1_baseline.py	纯净基线，用于后续对比
+Step 2	translate=0.05	train_2_translate.py	模拟探头轻微位移
+Step 3	translate=0.05 + scale=0.1	train_3_translate_scale.py	加入保守缩放，避免小目标消失
+Step 4	translate=0.1 + scale=0.1	train_4_translate0.1_scale0.1.py	测试更大平移是否继续带来增益
+Step 5	translate=0.05 + scale=0.1 + 课程式斑点噪声	train_5_speckle_translate_scale.py	最优配置，通过 SpeckleTrainer 动态注入噪声

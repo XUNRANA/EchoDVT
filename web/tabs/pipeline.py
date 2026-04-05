@@ -145,6 +145,7 @@ def _run_full_pipeline(
             gallery_images.append((bgr_to_rgb(vis), f"第 {i} 帧"))
 
     state["pred_masks"] = pred_masks_by_idx
+    state["masks_list"] = masks_list  # 供 DVT 诊断直接使用
     state["frame_metrics"] = all_frame_metrics
     state["vein_areas"] = vein_areas
     state["artery_areas"] = artery_areas

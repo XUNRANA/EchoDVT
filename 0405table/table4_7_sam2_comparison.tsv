@@ -1,0 +1,9 @@
+类别	官方SAM2	本文EchoDVT
+微调方式	全量微调（全部224M参数）	LoRA低秩微调（仅~0.5M，占0.2%）
+训练支持	仅支持推理（@inference_mode）	新增SAM2VideoTrainer，支持梯度计算
+输入端	仅首帧单次提示	多帧提示MFP（每隔N帧YOLO重新锚定）
+输出端	无后处理	RPA相对位置锚定（约束静脉漂移）
+Prompt来源	手动标注	YOLO自动检测+先验补全
+数据集	通用视频/图像	DVT超声视频专用Dataset
+损失函数	无训练损失设计	Dice+Focal Loss组合并支持类别加权
+应用场景	通用分割	DVT超声诊断（动脉/静脉二类分割）

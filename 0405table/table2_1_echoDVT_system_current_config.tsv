@@ -1,0 +1,9 @@
+模块名称	当前配置
+YOLO 检测权重	yolo/runs/detect/runs/detect/dvt_runs/aug_step5_speckle_translate_scale/weights/best.pt
+YOLO 置信度阈值	0.1
+SAM2 主干网络	Hiera Large (sam2_hiera_large.pt)
+SAM2 LoRA 微调	LoRA r8
+多帧提示 MFP	开启（固定）
+分类模型	RF unified
+分类阈值	prob >= 0.05
+特征维度	21 维

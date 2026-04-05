@@ -92,6 +92,7 @@ def _run_sam2_segmentation(
     gallery_images = []
 
     total_frames = len(frame_files)
+    masks_list = []  # 用于 DVT 诊断的 semantic mask 列表
     for i, frame_path in enumerate(frame_files):
         progress((i + 1) / total_frames, desc=f"处理帧 {i}/{total_frames}")
         img = cv2.imread(frame_path)
@@ -105,6 +106,8 @@ def _run_sam2_segmentation(
             semantic_mask = pred["semantic"]
         else:
             semantic_mask = np.zeros((h, w), dtype=np.uint8)
+
+        masks_list.append(semantic_mask)
 
         # 计算面积
         a_area = compute_mask_area(semantic_mask, 1)
@@ -133,6 +136,7 @@ def _run_sam2_segmentation(
 
     # 更新 state
     state["pred_masks"] = pred_masks_by_idx
+    state["masks_list"] = masks_list  # 供 DVT 诊断直接使用
     state["frame_metrics"] = all_frame_metrics
     state["vein_areas"] = vein_areas
     state["artery_areas"] = artery_areas

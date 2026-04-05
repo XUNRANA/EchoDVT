@@ -1,0 +1,3 @@
+配置	Mean Dice	Artery Dice	Vein Dice	相对提升
+LoRA r8仅首帧	0.7692	0.8354	0.7029	-
+LoRA r8+MFP	0.7853	0.8540	0.7166	+1.6%

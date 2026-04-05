@@ -43,38 +43,32 @@ def _run_diagnosis(state: dict):
     # 尝试使用 InferenceService 进行完整 21 维特征提取
     full_features = None
     ml_result = None
-    if pred_masks:
+
+    # 优先使用已收集好的 masks_list（来自 segmentation 或 pipeline）
+    masks_list = state.get("masks_list")
+
+    # 如果没有 masks_list，则从 pred_masks 构建
+    if masks_list is None and pred_masks:
+        frame_files = state.get("frame_files", [])
+        num_frames = len(frame_files)
+        masks_list = []
+        for i in range(num_frames):
+            entry = pred_masks.get(i)
+            if entry is not None:
+                masks_list.append(entry["semantic"])
+            else:
+                if masks_list:
+                    masks_list.append(np.zeros_like(masks_list[-1]))
+                else:
+                    masks_list.append(np.zeros((256, 256), dtype=np.uint8))
+
+    if masks_list and len(masks_list) > 0:
         try:
             from web.services import InferenceService
-            import signal
-
-            # 收集所有帧的 semantic mask（按帧序排列）
-            num_frames = len(state.get("frame_files", []))
-            masks_list = []
-            for i in range(num_frames):
-                entry = pred_masks.get(i)
-                if entry is not None:
-                    masks_list.append(entry["semantic"])
-                else:
-                    if masks_list:
-                        masks_list.append(np.zeros_like(masks_list[-1]))
-                    else:
-                        masks_list.append(np.zeros((256, 256), dtype=np.uint8))
-
-            # 设置 30 秒超时，防止模型加载卡死
-            def _timeout_handler(signum, frame):
-                raise TimeoutError("ML diagnosis timed out")
-
-            old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
-            signal.alarm(30)
-            try:
-                ml_result = InferenceService.get().run_diagnosis(masks_list)
-                full_features = ml_result.get("features")
-            finally:
-                signal.alarm(0)
-                signal.signal(signal.SIGALRM, old_handler)
-        except (TimeoutError, Exception) as e:
-            print(f"[Diagnosis] ML inference skipped: {e}")
+            ml_result = InferenceService.get().run_diagnosis(masks_list)
+            full_features = ml_result.get("features")
+        except Exception as e:
+            print(f"[Diagnosis] ML inference failed: {e}")
             ml_result = None
 
     # 兜底：简单 VCR 阈值诊断

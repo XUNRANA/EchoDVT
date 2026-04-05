@@ -1,0 +1,6 @@
+组件	具体位置	注入方式	参数量	占总参数比
+Image Encoder	48层 Hiera 注意力	LoRA QKV（Q/V）	~0.30M	~0.13%
+Memory Attention	4层 self/cross attn	LoRA Linear（Q/K/V/Out）	~0.15M	~0.07%
+Mask Decoder	SAM 解码头	全量微调	~0.05M	~0.02%
+Memory Encoder	mask->memory embedding	可选解冻	可选	可选
+合计	-	LoRA + 部分解冻	~0.50M	~0.22%

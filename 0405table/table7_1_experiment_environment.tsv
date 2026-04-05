@@ -1,0 +1,11 @@
+类别	项目	配置详情
+硬件	GPU	NVIDIA A100-SXM4-40GB，40 GB/卡（实验主流程通常使用单卡完成训练与推理）
+硬件	CPU	AMD EPYC 7R13 48-Core Processor，64 vCPU
+硬件	内存	251 GiB 系统内存
+软件	OS	Ubuntu 22.04.5 LTS（Linux 5.15.0-173-generic）
+软件	Python	Python 3.10.20（Conda 环境：echodvt）
+软件	PyTorch	PyTorch 2.10.0+cu128（CUDA 12.8）
+软件	Ultralytics	Ultralytics 8.4.21（YOLOv8）
+软件	SAM2	Meta 官方 SAM2 1.0 代码库（基于官方实现进行 LoRA 注入与训练/推理二次开发）
+软件	scikit-learn	scikit-learn 1.7.2（随机森林分类器实现）
+软件	Gradio	Gradio 6.9.0（Web 可视化与交互界面）
