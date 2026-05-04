@@ -1,5 +1,7 @@
 ## SAM 2 toolkits
 
+> EchoDVT note: these upstream VOS tools are kept for reference. The EchoDVT DVT pipeline uses `inference_box_prompt_large.py`, `inference_lora.py`, and the Web service layer instead of `tools/vos_inference.py`.
+
 This directory provides toolkits for additional SAM 2 use cases.
 
 ### Semi-supervised VOS inference

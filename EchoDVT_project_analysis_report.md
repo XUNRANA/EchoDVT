@@ -7,6 +7,28 @@
 
 ---
 
+## 展示优先结论
+
+如果用于项目展示、答辩或交付说明，可以先抓住四个结论：
+
+| 结论 | 支撑内容 |
+|------|----------|
+| EchoDVT 是完整系统，不是单一模型 demo | Web 已串联数据输入、检测、分割、诊断和 PDF 报告 |
+| 检测模块有医学先验兜底 | YOLO 漏检时通过 artery/vein 位置关系补全 prompt，降低 SAM2 初始化失败风险 |
+| 分割模块的核心贡献是 SAM2 LoRA + MFP | LoRA 做超声域适配，MFP 周期性重锚定，当前最稳定组合是 LoRA r8 + MFP |
+| 诊断结果可解释 | 分类器不是直接吃原图，而是基于静脉压缩过程的 21 维时序特征输出 DVT 概率 |
+
+当前可展示成果包括：
+
+- YOLO 最优 run 的最佳 `mAP50 = 86.2%`。
+- `val` 首帧 artery / vein 两类同时成功率为 `85.5%`。
+- SAM2 LoRA r8 + MFP 的 frame-weighted Dice 为 `0.7853`，Vein Dice 为 `0.7166`。
+- RF unified 的 `val_accuracy = 94.74%`，`val_recall = 97.37%`，`val_precision = 92.50%`。
+
+推荐演示顺序是：先用 Web 一键分析展示完整闭环，再拆开讲 YOLO 先验补框、SAM2 LoRA + MFP、21 维时序特征分类。
+
+---
+
 ## 1. 项目整体定位
 
 从根目录 `README.md` 可以看出，EchoDVT 的目标不是单一分割模型，而是一个完整的超声视频 DVT 辅助诊断系统。主流程是：
@@ -406,13 +428,14 @@ Memory Attention 注入逻辑见 `sam2/sam2/lora_sam2.py:236-275`：
 
 ## 6. 推理侧增强模块
 
-EchoDVT 在推理阶段又叠了三类增强：
+EchoDVT 在推理阶段又叠了四类增强：
 
 1. `MFP`：多帧 prompt
-2. `OKM`：关键帧记忆
-3. `DAM`：目标消失感知记忆
+2. `RPA`：相对位置锚定后处理
+3. `OKM`：关键帧记忆
+4. `DAM`：目标消失感知记忆
 
-其中真正稳定且最有效的是 `MFP`。
+其中真正稳定且默认采用的是 `MFP`。`RPA`、`OKM`、`DAM` 都是 `inference_lora.py` 中保留的 CLI 实验开关，默认关闭；Web 主线不暴露这些切换。
 
 ### 6.1 MFP：Multi-Frame Prompting
 
@@ -438,7 +461,19 @@ EchoDVT 在推理阶段又叠了三类增强：
 
 从效果看，MFP 是本项目当前最成功的新增模块。
 
-### 6.2 OKM：Object-Aware Keyframe Memory
+### 6.2 RPA：Relative Position Anchoring
+
+实现位于 `sam2/sam2/postprocess.py` 的 `RelativePositionAnchor`。
+
+它不改 SAM2 内部传播，而是在输出端检查动脉和静脉的相对位置：
+
+- 先从若干好帧学习 artery 到 vein 的基线偏移。
+- 对后续帧计算静脉质心相对预期位置的漂移。
+- 当漂移超过 `max_drift` 时，抑制该帧静脉 mask。
+
+当前状态是：RPA 代码存在，但离线推理需要显式传 `--rpa True` 才启用；Web 默认不启用。
+
+### 6.3 OKM：Object-Aware Keyframe Memory
 
 这是一个真正修改 SAM2 内部记忆选择的模块，相关改动分布在两个文件：
 
@@ -469,7 +504,7 @@ EchoDVT 在推理阶段又叠了三类增强：
 - 保留一个“目标最清楚时刻”的参考记忆
 - 防止后续由于静脉塌陷或漂移，memory bank 里全变成低质量帧
 
-### 6.3 DAM：Disappearance-Aware Memory
+### 6.4 DAM：Disappearance-Aware Memory
 
 实现位于 `sam2/sam2/sam2_video_predictor.py:648-662`。
 
@@ -520,17 +555,19 @@ EchoDVT 在推理阶段又叠了三类增强：
 
 这说明 MFP 确实完全遵守“先加 conditioning，再统一传播”的 SAM2 原生范式。
 
-### 7.3 OKM / DAM 打开方式
+### 7.3 RPA / OKM / DAM 打开方式
 
-在 `run()` 里，代码只是简单给 predictor 追加两个运行时属性，见 `sam2/inference_lora.py:371-376`：
+在 `run()` 里，RPA 是输出后处理对象，OKM/DAM 则是给 predictor 追加运行时属性：
 
 - `segmenter.predictor.use_okm = True`
 - `segmenter.predictor.use_dam = True`
+- `rpa = RelativePositionAnchor(...)`
 
 也就是说：
 
 - `OKM/DAM` 不是通过 config 构建时注册的
 - 而是通过运行时 flag 触发 predictor 内部的分支逻辑
+- `RPA` 不碰 predictor 内部，只在预测结果返回后做 mask 过滤
 
 这是一种很轻量的实验接法，优点是快，缺点是工程规范性一般。
 
@@ -626,90 +663,48 @@ EchoDVT 在推理阶段又叠了三类增强：
 
 这一部分非常重要，因为它关系到“项目现在能不能被稳定复现”。
 
-### 9.1 `adaptive_memory.py` 实际已经被移除
+### 9.1 旧版 adaptive-memory 支线已经从代码中清理
 
-`sam2/sam2/adaptive_memory.py:1-3` 现在只剩下注释：
-
-- 旧版 AM / SM / AV 模块已经移除
-- 原因是它们会干扰 LoRA 学到的特征
-- 现在推荐的是 `postprocess.py` 中的 MFP
+当前仓库中已经没有 `sam2/sam2/adaptive_memory.py`，也没有 `use_adaptive_memory`、`use_separate_memory`、`use_av_constraint` 或 `SeparateMemoryBank` 的 Python 引用。
 
 这意味着项目发展路径已经发生了明确转向：
 
 - 早期尝试是“改内部记忆机制”
-- 当前稳定方案是“保留 LoRA + 外部 prompt 增强”
+- 当前稳定方案是“LoRA 域适配 + MFP 外部 prompt 增强”
 
-### 9.2 但是训练器里还残留了已移除模块的接口
+### 9.2 训练器接口已回到 LoRA 训练主线
 
-`sam2/sam2/sam2_video_trainer.py:124-135` 仍然会在 `init_state_train` 里访问：
+`sam2/sam2/sam2_video_trainer.py` 当前不再引用旧 adaptive-memory 接口，主要职责是：
 
-- `self.use_adaptive_memory`
-- `self.use_separate_memory`
-- `SeparateMemoryBank`
+- 从 `SAM2VideoPredictor` 派生训练版 predictor。
+- 移除推理装饰器带来的梯度限制。
+- 保留 low-res mask，供 `train_lora.py` 计算 Dice + Focal loss。
 
-问题在于：
+更需要继续明确的是权重保存语义：当前 LoRA checkpoint 不是“纯 adapter”，还包含 mask decoder 和部分完整模块状态。
 
-- 当前 predictor 上并没有这些属性
-- `sam2/sam2/build_sam.py:100-142` 里的 `build_sam2_video_predictor()` 虽然接受 `**kwargs`，但根本没有把这些参数传进模型实例
-- `sam2/sam2/adaptive_memory.py` 也已经没有 `SeparateMemoryBank` 实现
+### 9.3 Baseline 推理脚本已不再暴露 AM/SM/AV
 
-我在当前工作树上实际做了最小复现，结果是：
+`sam2/inference_box_prompt_large.py` 当前构建 baseline predictor 时只传入 `model_cfg`、`checkpoint` 和 `device`，CLI 中也没有 AM/SM/AV 开关。
 
-- 构建 `use_trainer=True` 的 LoRA 模型是可以成功的
-- 但一旦调用 `init_state_train(...)`
-- 会报错：
-  - `AttributeError: 'SAM2VideoTrainer' object has no attribute 'use_adaptive_memory'`
+因此，旧自适应记忆支线已经不应再作为当前代码功能理解。
 
-这说明一个非常关键的事实：
+### 9.4 `postprocess.py` 当前包含 MFP 和 RPA
 
-- 仓库里现有的 LoRA checkpoint 证明“这套训练曾经跑通过”
-- 但按当前工作树直接重跑训练，接口已经出现断裂
+`sam2/sam2/postprocess.py` 当前同时包含：
 
-换句话说，项目代码和实验产物之间存在版本漂移。
+- `MultiFramePrompter`
+- `RelativePositionAnchor`
 
-### 9.3 `inference_box_prompt_large.py` 的 AM/SM/AV 开关现在基本是空接线
+这与当前 CLI 一致：MFP 通过 `--multi-frame-prompt` 启用，RPA 通过 `--rpa` 启用。Web 固定开启 MFP，不启用 RPA。
 
-在 `sam2/inference_box_prompt_large.py:348-366` 和 `:754-762` 中，基线推理脚本仍然会把这些参数传给 `build_sam2_video_predictor()`：
+### 9.5 当前工作区状态与实验功能边界
 
-- `use_adaptive_memory`
-- `use_separate_memory`
-- `use_av_constraint`
+本次文档更新前，`git status --short` 为空，说明代码工作区是干净的。OKM/DAM/RPA 当前都已经进入代码，但默认关闭，属于离线实验功能。
 
-CLI 也仍然暴露这些选项，见 `sam2/inference_box_prompt_large.py:1041-1066`。
+当前最可信的稳定主线仍然是：
 
-但结合 `build_sam.py:100-142` 可以看到：
-
-- 构建函数并没有真正使用这些参数
-- 当前工作树里这些开关事实上不会生效
-
-因此：
-
-- 这些选项在代码层面是“遗留接口”
-- 在当前版本里不应再被当成主功能理解
-
-### 9.4 注释与实现存在轻微不一致
-
-有几处注释已经落后于实现：
-
-- `sam2/sam2/sam2_video_trainer.py:4-8` 还写着“复用所有自适应记忆模块”
-- `sam2/sam2/postprocess.py:7-12` 的注释提到 `RelativePositionAnchor`，但当前文件主体只剩 `MultiFramePrompter`
-
-这说明 EchoDVT 的 `SAM2` 分支经历过多轮实验迭代，代码已经进入“主线保留、旧注释未完全清理”的状态。
-
-### 9.5 当前工作树是脏的，OKM/DAM 还处于本地实验态
-
-`git status` 显示以下文件处于修改状态：
-
-- `sam2/inference_lora.py`
-- `sam2/sam2/modeling/sam2_base.py`
-- `sam2/sam2/sam2_video_predictor.py`
-
-这意味着：
-
-- `OKM/DAM` 相关逻辑很可能是近期加入、尚未完全沉淀的本地实验
-- 当前最可信的稳定主线仍然是：
-  - `LoRA`
-  - `MFP`
+- `LoRA r8`
+- `MFP`
 
 ---
 
@@ -732,9 +727,9 @@ CLI 也仍然暴露这些选项，见 `sam2/inference_box_prompt_large.py:1041-1
 
 对应痕迹：
 
-- `SAM2_0121_INTEGRATION.md`
-- `adaptive_memory.py` 的残留注释
-- `use_adaptive_memory` / `use_separate_memory` / `use_av_constraint` 的遗留接口
+- 已移除的 `adaptive_memory.py`
+- 已从当前 Python 代码中清理掉的 AM/SM/AV 接口
+- 后续保留下来的 OKM/DAM 轻量实验 hook
 
 这一阶段的思路是“深入改 SAM2 内部记忆逻辑”，但后来被证明：
 
@@ -748,7 +743,7 @@ CLI 也仍然暴露这些选项，见 `sam2/inference_box_prompt_large.py:1041-1
 
 - LoRA 负责把 SAM2 适配到超声血管域
 - MFP 在输入侧给更多锚点
-- 必要时再用 OKM 这种轻量内存修补
+- 必要时再用 RPA、OKM、DAM 这类显式开关做离线消融
 
 这条路线之所以更靠谱，是因为它遵守了一个非常好的工程原则：
 
@@ -772,7 +767,7 @@ CLI 也仍然暴露这些选项，见 `sam2/inference_box_prompt_large.py:1041-1
 3. 低秩适配
    - 给 image encoder 和 memory attention 注入 LoRA
 4. 推理增强
-   - 用 MFP/OKM/DAM 等模块去解决长视频传播漂移
+   - 用 MFP/RPA/OKM/DAM 等模块去解决长视频传播漂移或假阳性
 
 ### 11.2 其中最成功的两个模块是
 
@@ -789,12 +784,12 @@ CLI 也仍然暴露这些选项，见 `sam2/inference_box_prompt_large.py:1041-1
 
 如果后续要继续在这条线上推进，我认为最优先的工作不是再发明新 heuristics，而是先把下面三件事做干净：
 
-1. 修复 `SAM2VideoTrainer` 中残留的 `adaptive_memory` 断链接口。
-2. 明确区分：
+1. 明确区分：
    - 纯 LoRA 参数
    - mask decoder 全量微调参数
    - memory attention 完整保存状态
-3. 清理无效 CLI 和过期注释，让“当前主线方案”表达得更一致。
+2. 让 Web 默认主线和离线实验开关在文档、CLI、输出目录命名中保持一致。
+3. 继续把 RPA/OKM/DAM 的收益边界用统一评估表固化下来，避免实验功能被误认为默认主线。
 
 ---
 
@@ -810,9 +805,8 @@ CLI 也仍然暴露这些选项，见 `sam2/inference_box_prompt_large.py:1041-1
 - `MFP` 用非常小的工程代价显著缓解了静脉时序漂移。
 - `OKM` 有一点潜力，但收益很小。
 - `DAM` 当前版本还不成熟。
-- 老的自适应记忆分支已经基本退出主线，但代码接口还没有完全清理。
+- 老的自适应记忆分支已经退出主线，当前只保留 RPA/OKM/DAM 等默认关闭的实验功能。
 
 所以，如果把这个项目的 SAM2 部分抽象成一句工程判断：
 
 > EchoDVT 已经找到了一条有效的超声视频分割适配路线，但当前代码库还处在“实验主线已明确、工程清理尚未完成”的阶段。
-

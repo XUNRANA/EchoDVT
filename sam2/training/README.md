@@ -1,5 +1,7 @@
 # Training Code for SAM 2
 
+> EchoDVT note: this is the upstream SAM 2 training framework. EchoDVT LoRA training uses `../train_lora.py` with `sam2/dvt_dataset.py`, `sam2/lora_sam2.py`, and `sam2/sam2_video_trainer.py`; see [../README_EchoDVT.md](../README_EchoDVT.md) for the current project-specific training path.
+
 This folder contains the training code for SAM 2, a foundation model for promptable visual segmentation in images and videos. 
 The code allows users to train and fine-tune SAM 2 on their own datasets (image, video, or both).
 

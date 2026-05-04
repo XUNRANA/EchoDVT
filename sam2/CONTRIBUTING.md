@@ -1,4 +1,7 @@
 # Contributing to segment-anything
+
+> EchoDVT note: this file is retained from the upstream SAM 2 / segment-anything project. For local EchoDVT development, start with the project root [README.md](../README.md) and the SAM2 customization guide [README_EchoDVT.md](README_EchoDVT.md).
+
 We want to make contributing to this project as easy and transparent as
 possible.
 

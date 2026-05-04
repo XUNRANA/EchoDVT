@@ -1,5 +1,7 @@
 # Code of Conduct
 
+> EchoDVT note: this code of conduct is retained from the upstream SAM 2 / segment-anything project as part of the vendored dependency documentation.
+
 ## Our Pledge
 
 In the interest of fostering an open and welcoming environment, we as

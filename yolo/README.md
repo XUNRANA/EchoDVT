@@ -2,6 +2,21 @@
 
 基于 YOLOv8 的超声图像动脉/静脉目标检测，为 SAM2 分割提供首帧 box prompt。
 
+## 模块特色与成果
+
+YOLO 模块解决的是 EchoDVT 链路里的第一个关键问题：SAM2 需要可靠的首帧 prompt，而超声图像中动脉和静脉边界弱、对比低、容易漏检。
+
+本模块的特色是把深度检测和医学先验结合起来：
+
+| 特色 | 作用 | 成果体现 |
+|------|------|----------|
+| 解剖位置先验补全 | YOLO 漏检 artery 或 vein 时仍能给 SAM2 提供 box prompt | `val` 中 artery/vein 先验补全分别触发 `3.9%` / `2.6%` |
+| 重叠修正 | 两个框异常重叠时，用相对位置先验修正低置信度目标 | `val` 重叠修正触发 `6.6%` |
+| 超声专用增强 | 禁用破坏医学语义的增强，引入平移、缩放和斑点噪声 | 最优 run 的最佳 mAP50 为 `86.2%` |
+| 首帧病例口径 | 直接评估 SAM2 实际收到的首帧 prompt 质量 | `val` 两类同时成功率 `85.5%` |
+
+因此，这个模块不只是“训练一个检测器”，而是为后续视频分割提供稳定、可解释、可兜底的初始化条件。
+
 ## 当前主线配置
 
 当前 Web 与主线推理固定使用以下 YOLO 配置：
@@ -12,6 +27,7 @@
 | 默认先验 | `prior_stats.json` |
 | 首帧检测阈值 | `conf = 0.1` |
 | 兜底重试阈值 | `conf = 0.01` |
+| 成功判定 IoU | `IoU >= 0.5` |
 | 用途 | 为 SAM2 提供首帧 artery / vein box prompt |
 
 > 说明：训练脚本中 `project='runs/detect/dvt_runs'`，当前实际产物落盘路径包含一层重复的 `runs/detect`。README 统一以当前仓库内真实路径为准。
@@ -106,6 +122,8 @@ YOLO 检测 (conf=0.1)
 ```
 
 即使 `prior_stats.json` 缺失，代码内置硬编码默认值保证可用。
+
+当前代码中，`VesselDetector.predict()` 会优先使用 YOLO 检测结果；只有缺少类别、两类都漏检或两框重叠异常时，才进入重试、先验补全或重叠修正逻辑。重叠修正阈值为 `IoU > 0.3`。
 
 ---
 
@@ -231,10 +249,30 @@ python train_5_speckle_translate_scale.py
 
 ```bash
 cd yolo
-python inference.py \
-  --weights runs/detect/runs/detect/dvt_runs/aug_step5_speckle_translate_scale/weights/best.pt \
-  --split val --conf 0.1
+python inference.py
 ```
+
+`inference.py` 默认会加载 `prior_stats.json`；如果该文件不可用，会退回到代码内置先验。
+
+当前脚本通过文件顶部常量控制：
+
+| 常量 | 当前默认值 | 说明 |
+|------|------------|------|
+| `MODEL_PATH` | Step 5 最优权重 | YOLO 推理权重 |
+| `INPUT_DIR` | `dataset/val/images` | 待评估图像目录 |
+| `LABEL_DIR` | `dataset/val/labels` | GT label 目录 |
+| `CONF_THRESHOLD` | `0.1` | 首轮检测阈值 |
+| `PRIOR_PATH` | `prior_stats.json` | 先验统计文件 |
+
+输出位于：
+
+```text
+yolo/predictions/aug_step5_speckle_translate_scale/val_<timestamp>/
+├── eval_results.log
+└── *_compare.jpg
+```
+
+`eval_results.log` 会列出总体成功率、平均 IoU，以及 IoU < 0.5 的失败案例；`*_compare.jpg` 用于展示预测框和 GT 框的对比。
 
 ### 计算先验
 
@@ -262,3 +300,13 @@ VesselDetector 检测结果字典：
 ```
 
 此格式直接作为 SAM2 的 box prompt 输入。
+
+字段解释：
+
+| 字段 | 含义 |
+|------|------|
+| `box` | `[x1, y1, x2, y2]` 像素坐标 |
+| `conf` | YOLO 检测置信度；先验框通常为 `0.0` |
+| `inferred` | 是否由先验推断补全 |
+| `fixed` | 是否经过重叠修正 |
+| `prior_all` | 是否两个目标都由绝对先验生成 |

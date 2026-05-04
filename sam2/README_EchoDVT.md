@@ -1,6 +1,18 @@
 # SAM2 视频分割模块 — 与官方 SAM2 的区别与创新
 
-本目录基于 Meta 官方 [SAM2 (Segment Anything Model 2)](https://github.com/facebookresearch/sam2) 二次开发，针对超声血管视频分割任务进行了多项定制创新。**核心设计原则：不修改 SAM2 内部记忆和传播机制，所有创新在外部输入端或输出端实现。**
+本目录基于 Meta 官方 [SAM2 (Segment Anything Model 2)](https://github.com/facebookresearch/sam2) 二次开发，针对超声血管视频分割任务进行了多项定制创新。当前稳定主线是 **SAM2 Large + LoRA r8 + MFP 多帧提示**；RPA、OKM、DAM 保留为 CLI 实验开关，默认关闭。
+
+## 分割模块特色与成果
+
+SAM2 模块是 EchoDVT 的核心创新层：它把通用视频分割模型改造成适合超声血管压缩视频的二类目标跟踪器。
+
+| 特色 | 功能价值 | 当前成果 |
+|------|----------|----------|
+| LoRA 低秩微调 | 在小样本 DVT 超声数据上适配 SAM2，避免全量微调过拟合 | 只训练约 `0.5M` 参数，占 SAM2 Large 约 `0.2%` |
+| 可训练 VideoTrainer | 移除官方 predictor 的推理模式限制，让视频传播链路可反向传播 | 支持按 case 端到端训练 LoRA |
+| MFP 多帧提示 | 用 YOLO 在后续帧重新提供 anchor，缓解长视频漂移 | LoRA r8 + MFP 的 Dice 达 `0.7853`，Vein Dice 达 `0.7166` |
+| RPA/OKM/DAM 实验开关 | 为漂移、关键帧记忆和消失目标提供离线消融能力 | 默认关闭，用于研究而非 Web 主线 |
+| 语义 mask 输出 | 输出 `0/1/2` 三值 mask，直接服务 DVT 特征提取 | 与 `classify_dvt.py` 和 Web 诊断页直接对接 |
 
 ## 与官方 SAM2 的对比总览
 
@@ -9,7 +21,8 @@
 | 微调方式 | 全量微调（全部 224M 参数） | **LoRA 低秩微调（仅 ~0.5M，占 0.2%）** |
 | 训练支持 | 仅推理 (`@inference_mode`) | **新增 SAM2VideoTrainer（移除推理装饰器，支持梯度）** |
 | 输入端 | 仅首帧 prompt | **多帧提示 MFP（每隔 N 帧用 YOLO 重新锚定）** |
-| 输出端 | 无后处理 | **RPA 相对位置锚定（用动脉位置约束静脉漂移）** |
+| 输出端 | 无 EchoDVT 后处理 | **RPA 相对位置锚定（CLI 可选，默认关闭）** |
+| 记忆选择 | 原生记忆传播 | **OKM/DAM 实验开关（默认关闭，不属于 Web 主线）** |
 | Prompt 来源 | 手动标注 | **YOLO 自动检测 + 先验补全** |
 | 数据集 | 通用视频/图像 | **DVT 超声视频专用 Dataset** |
 | 损失函数 | 无 | **Dice + Focal Loss 组合** |
@@ -18,13 +31,13 @@
 ## 新增文件清单
 
 以下文件为**本项目原创**，官方 SAM2 仓库中不存在。
-需要特别说明的是：V1 的 adaptive-memory / AM-SM-AV 支线已经彻底移除，不属于当前支持链路。当前主线只保留 LoRA + MFP + RPA。
+需要特别说明的是：V1 的 adaptive-memory / AM-SM-AV 支线已经彻底移除，不属于当前支持链路。当前稳定主线只保留 LoRA + MFP；RPA、OKM、DAM 是可选实验功能。
 
 ```
 sam2/
 ├── 新增推理脚本
 │   ├── inference_box_prompt_large.py   # Baseline SAM2 推理 + VesselDetector
-│   └── inference_lora.py              # LoRA 推理 + MFP/RPA 集成
+│   └── inference_lora.py              # LoRA 推理 + MFP/RPA/OKM/DAM 可选开关
 │
 ├── 新增训练脚本
 │   └── train_lora.py                  # LoRA 端到端训练流程
@@ -36,7 +49,7 @@ sam2/
     └── sam2_video_trainer.py   # [新增] 支持训练的 VideoPredictor
 ```
 
-官方文件保持不变：`build_sam.py`、`sam2_video_predictor.py`、`sam2_image_predictor.py` 等。
+大部分官方文件保持原始结构；`sam2_video_predictor.py` 和 `modeling/sam2_base.py` 中保留了 OKM/DAM 的实验性 hook，但默认不启用。
 
 ---
 
@@ -144,6 +157,8 @@ Frame 30 ── YOLO prompt ─── SAM2 re-anchor
 ## 创新 3: 相对位置锚定 RPA (Relative Position Anchoring)
 
 **文件**：`sam2/postprocess.py` — `RelativePositionAnchor` 类
+
+当前状态：RPA 已在代码中实现，但不属于 Web 默认流程；离线推理需要显式传入 `--rpa True` 才会启用。
 
 ### 问题
 
@@ -273,6 +288,8 @@ loss = dice_loss(pred_logits, target) + sigmoid_focal_loss(pred_logits, target)
 - `SAM2MemoryVideoSegmenter`：Baseline SAM2 推理封装，服务首帧 prompt + memory propagation 主线
 - 完整评估流程：逐帧 Dice/mIoU → CSV 导出 → JSON 汇总 → PNG 可视化
 
+`inference_lora.py` 是当前 LoRA 主线入口，默认只在显式传参时开启 MFP、RPA、OKM 或 DAM；Web 服务层固定调用 LoRA r8 + MFP。
+
 ---
 
 ## 目录结构
@@ -283,7 +300,7 @@ sam2/
 ├── README_EchoDVT.md                  # 本文件（EchoDVT 创新说明）
 │
 ├── inference_box_prompt_large.py      # [新增] Baseline 推理 + VesselDetector
-├── inference_lora.py                  # [新增] LoRA 推理 + MFP/RPA
+├── inference_lora.py                  # [新增] LoRA 推理 + MFP/RPA/OKM/DAM 可选开关
 ├── train_lora.py                      # [新增] LoRA 训练脚本
 │
 ├── checkpoints/                       # 模型权重
@@ -311,6 +328,15 @@ sam2/
 
 ## 使用方法
 
+### 推荐功能矩阵
+
+| 场景 | 命令组合 | 用途 |
+|------|----------|------|
+| Baseline 对照 | `inference_box_prompt_large.py` | 验证原版 SAM2 + YOLO box prompt 的基础传播效果 |
+| LoRA 单独效果 | `inference_lora.py --lora-r 8` | 评估超声域微调带来的收益 |
+| 当前主线 | `inference_lora.py --lora-r 8 --multi-frame-prompt True` | 复现实验和 Web 默认分割能力 |
+| 消融实验 | 追加 `--rpa` / `--okm` / `--dam` | 研究后处理和记忆机制对传播稳定性的影响 |
+
 ### Baseline 推理
 
 ```bash
@@ -336,6 +362,41 @@ python inference_lora.py \
   --lora-r 8 --split val \
   --multi-frame-prompt True --mfp-interval 15 --mfp-min-conf 0.3
 ```
+
+### 可选实验开关
+
+```bash
+cd sam2
+python inference_lora.py \
+  --lora-weights checkpoints/lora_runs/lora_r8_lr0.0003_e25_20260314_153210/lora_best.pt \
+  --lora-r 8 --split val \
+  --multi-frame-prompt True \
+  --rpa True --okm False --dam False
+```
+
+上述开关用于离线实验，不是 Web 默认配置。
+
+### 输出文件说明
+
+LoRA 推理默认输出到：
+
+```text
+sam2/predictions/sam2_lora_yolo_box/<run_name>/
+├── frame_metrics.csv
+├── case_metrics.csv
+├── summary.json
+├── run.log
+└── <case>/...
+```
+
+| 文件 | 用途 |
+|------|------|
+| `frame_metrics.csv` | 每帧 artery / vein 的 Dice、mIoU、IoU |
+| `case_metrics.csv` | 每个 case 的平均分割指标 |
+| `summary.json` | 全局 frame-weighted 和 case-weighted 指标、运行配置 |
+| `run.log` | 每个 case 的 prompt、MFP 和推理过程日志 |
+
+展示结果时，优先引用 `summary.json` 的全局指标，再结合典型 case 可视化说明 MFP 如何缓解静脉漂移。
 
 ### LoRA 训练
 

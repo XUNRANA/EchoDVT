@@ -1,5 +1,7 @@
 ## Installation
 
+> EchoDVT note: this file keeps the upstream SAM 2 installation guidance. In this repository, the main project environment is `conda activate echodvt`; use the root [README.md](../README.md) for the end-to-end EchoDVT workflow and [README_EchoDVT.md](README_EchoDVT.md) for the customized SAM2 path.
+
 ### Requirements
 
 - Linux with Python ≥ 3.10, PyTorch ≥ 2.5.1 and [torchvision](https://github.com/pytorch/vision/) that matches the PyTorch installation. Install them together at https://pytorch.org to ensure this.

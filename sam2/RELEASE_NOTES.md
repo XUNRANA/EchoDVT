@@ -1,5 +1,7 @@
 ## SAM 2 release notes
 
+> EchoDVT note: these are upstream SAM 2 release notes kept for base model provenance. EchoDVT-specific changes are documented in [README_EchoDVT.md](README_EchoDVT.md); the current EchoDVT default is SAM2 Large + LoRA r8 + MFP.
+
 ### 12/11/2024 -- full model compilation for a major VOS speedup and a new `SAM2VideoPredictor` to better handle multi-object tracking
 
 - We now support `torch.compile` of the entire SAM 2 model on videos, which can be turned on by setting `vos_optimized=True` in `build_sam2_video_predictor` (it uses the new `SAM2VideoPredictorVOS` predictor class in `sam2/sam2_video_predictor.py`).

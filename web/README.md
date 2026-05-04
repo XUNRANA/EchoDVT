@@ -7,6 +7,19 @@ EchoDVT Web 是基于 Gradio 6.x 的诊断界面，用来串联数据输入、YO
 - 优先服务单案例诊断与科研展示
 - 不在界面里暴露实验性模型切换选项
 
+## 展示亮点
+
+Web 端把算法链路包装成面向演示和病例复查的交互界面，重点突出四件事：
+
+| 亮点 | 说明 |
+|------|------|
+| 一键串联 | 从病例加载到检测、分割、特征提取、RF 诊断一次完成 |
+| 可解释诊断 | 不只给结论，还展示静脉面积曲线、VCR 和完整 21 维特征 |
+| 可降级演示 | 权重缺失时可用 GT mask 兜底，保证页面流程仍可展示 |
+| 可交付输出 | 支持 PDF 报告导出，包含检测、分割、诊断和图表信息 |
+
+最适合展示的路径是“数据输入 → 一键分析 → 导出报告”。如果需要解释算法细节，可以依次打开目标检测、视频分割和 DVT 诊断页。
+
 ## 快速启动
 
 ```bash
@@ -73,7 +86,7 @@ Web 默认固定使用当前主线最优配置，不在界面中开放切换。
 | YOLO 置信度 | 固定 `conf = 0.1` |
 | SAM2 主干 | `sam2_hiera_large.pt` |
 | SAM2 LoRA | 固定 `LoRA r8` |
-| 多帧提示 MFP | Web 中固定开启 |
+| 多帧提示 MFP | Web 中固定开启，`interval=15`，`min_conf=0.3`，`max_prompts=5` |
 | DVT 分类器 | `RF unified` |
 | DVT 阈值 | 固定 `prob >= 0.05` |
 
@@ -86,7 +99,10 @@ artifacts/unified_model/rf_unified.json
 其中当前记录为：
 - `train_accuracy = 94.33%`
 - `val_accuracy = 94.74%`
+- `val_recall = 97.37%`
+- `val_precision = 92.50%`
 - `feature_dim = 21`
+- `n_train_cases = 376`
 
 ## 功能页说明
 
@@ -99,6 +115,11 @@ artifacts/unified_model/rf_unified.json
 - 当前统一模型的 train / val 指标
 
 这个页面面向“系统总览”，不是病例诊断页。
+
+适合展示：
+- 当前统一模型指标
+- 模型权重是否可用
+- 数据集规模和病例分布
 
 ### 2. 数据输入
 
@@ -127,6 +148,8 @@ artifacts/unified_model/rf_unified.json
 - 上传视频默认没有 GT 标注
 - 后续仍可继续检测、分割和诊断
 
+数据集病例适合展示完整指标，因为通常能读取 GT mask；上传视频更接近真实使用，但没有 GT 时不会显示 Dice/mIoU。
+
 ### 3. 一键分析
 
 这是当前最接近真实使用流程的页面。
@@ -149,6 +172,8 @@ artifacts/unified_model/rf_unified.json
 - 诊断摘要卡
 - 完整病例报告
 
+这是最推荐的演示页。它体现 EchoDVT 的完整功能闭环：自动检测血管、跟踪压缩过程、提取时序特征、输出 DVT 风险。
+
 ### 4. 目标检测
 
 只负责首帧 YOLO 检测。
@@ -165,6 +190,8 @@ artifacts/unified_model/rf_unified.json
 state["detections"]
 ```
 
+检测结果会保留 `inferred`、`fixed` 等标记，用来区分普通检测框、先验补全框和重叠修正框。
+
 ### 5. 视频分割
 
 使用首帧检测框作为 prompt，执行 SAM2 Large + LoRA r8 分割。
@@ -173,12 +200,15 @@ state["detections"]
 - 不允许切换变体
 - 不允许关闭 MFP
 - 固定走当前最优配置
+- 不暴露 RPA、OKM、DAM 等实验开关
 
 结果会写入：
 - `pred_masks`
 - `vein_areas`
 - `artery_areas`
 - `frame_metrics`
+
+页面展示的采样分割图用于快速判断传播是否稳定；面积序列会继续传给诊断页生成压缩曲线。
 
 ### 6. DVT 诊断
 
@@ -189,6 +219,8 @@ state["detections"]
 - `VCR` 作为辅助特征展示
 - 当统一模型不可用时，回退到与当前阈值对齐的简单 VCR 规则
 
+诊断页最适合解释项目医学逻辑：正常静脉在压迫下面积明显下降，DVT 患者静脉面积更稳定，因此分类器会重点利用面积比例、消失率、变异系数和形状变化特征。
+
 ### 7. 导出报告
 
 将当前案例结果导出为 PDF，汇总：
@@ -197,6 +229,8 @@ state["detections"]
 - 分割指标
 - 面积曲线
 - DVT 诊断结果
+
+生成 PDF 前需要已经完成分割和诊断。上传视频没有 GT 时，报告会跳过 GT 相关指标，但仍保留检测、面积曲线和诊断结论。
 
 ## 代码结构
 
@@ -246,6 +280,7 @@ web/
 - `DEFAULT_YOLO_MODEL`
 - `DEFAULT_SAM2_VARIANT`
 - `DEFAULT_LORA_WEIGHTS`
+- `DEFAULT_YOLO_PRIOR`
 
 ### `utils/ui.py`
 
@@ -319,7 +354,7 @@ conda activate echodvt
 ## 说明
 
 - 当前 Web 是“固定最优配置”的诊断界面，不是实验面板。
-- 如果要做消融实验、切换 LoRA rank、测试 MFP 参数，请直接使用 `sam2/` 和 `yolo/` 下的脚本。
+- 如果要做消融实验、切换 LoRA rank、测试 MFP/RPA/OKM/DAM 参数，请直接使用 `sam2/` 和 `yolo/` 下的脚本。
 - Web 文档只描述当前主线实现；算法细节请分别看：
   - [../README.md](../README.md)
   - [../yolo/README.md](../yolo/README.md)
