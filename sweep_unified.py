@@ -24,8 +24,8 @@ train_labels = load_labels_from_split_files(
     str(SAM2_DIR / "dataset" / "train_normal.txt"), "/dev/null"
 )
 
-val_df = pd.read_csv(ROOT / "results" / "e2e_classify_v3" / "features.csv", index_col=0)
-train_df = pd.read_csv(ROOT / "results" / "train_eval_v3" / "features.csv", index_col=0)
+val_df = pd.read_csv(ROOT / "artifacts" / "e2e_classify_v3" / "features.csv", index_col=0)
+train_df = pd.read_csv(ROOT / "artifacts" / "train_eval_v3" / "features.csv", index_col=0)
 
 val_y = pd.Series({c: val_labels[c] for c in val_df.index if c in val_labels})
 train_y = pd.Series({c: train_labels[c] for c in train_df.index if c in train_labels})

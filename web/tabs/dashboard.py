@@ -34,8 +34,8 @@ import matplotlib.pyplot as plt
 _CACHE_DIR = Path(__file__).parent.parent / "assets" / "cache"
 _VAL_ACC_CACHE = _CACHE_DIR / "val_accuracy.json"
 _TEST_ACC_CACHE = _CACHE_DIR / "test_accuracy.json"
-_VAL_HPARAM_REPORT = PROJECT_ROOT / "results" / "e2e_classify_v3" / "classification_report.json"
-_UNIFIED_MODEL_META = PROJECT_ROOT / "results" / "unified_model" / "rf_unified.json"
+_VAL_HPARAM_REPORT = PROJECT_ROOT / "artifacts" / "e2e_classify_v3" / "classification_report.json"
+_UNIFIED_MODEL_META = PROJECT_ROOT / "artifacts" / "unified_model" / "rf_unified.json"
 _COMPREHENSIVE_VERSION = 3
 _DEFAULT_TEST_NORMAL_SAMPLE = 500
 _DEFAULT_TEST_PATIENT_SAMPLE = 50

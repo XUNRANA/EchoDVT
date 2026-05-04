@@ -43,8 +43,8 @@ print(f"Val labels: {len(val_labels)} ({sum(1 for v in val_labels.values() if v=
       f"{sum(1 for v in val_labels.values() if v==1)} DVT)")
 print(f"Train labels: {len(train_labels)} (all normal)")
 
-val_csv = str(ROOT / "results" / "e2e_classify_v3" / "features.csv")
-train_csv = str(ROOT / "results" / "train_eval_v3" / "features.csv")
+val_csv = str(ROOT / "artifacts" / "e2e_classify_v3" / "features.csv")
+train_csv = str(ROOT / "artifacts" / "train_eval_v3" / "features.csv")
 
 meta = train_unified_model(
     val_features_csv=val_csv,

@@ -80,7 +80,7 @@ Web 默认固定使用当前主线最优配置，不在界面中开放切换。
 统一模型元信息当前来自：
 
 ```text
-results/unified_model/rf_unified.json
+artifacts/unified_model/rf_unified.json
 ```
 
 其中当前记录为：

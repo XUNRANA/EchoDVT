@@ -1,15 +1,42 @@
-dataset/
-test/
-results/
-yolo/runs/
-yolo/predictions/
-sam2/predictions/
-*.pt
+# Local editor / agent state
+.vscode/
+.claude/
+.agents/
+.codex
+
+# Python caches / build artifacts
 __pycache__/
+*.py[cod]
 *.pyc
 *.pyo
+*$py.class
 .pytest_cache/
-checkpoints/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+*.so
+
+# Local datasets / experiment outputs
+dataset/
+test/
+# Keep publishable figures/tables/scripts tracked; ignore bulky local artifacts.
+artifacts/*
+!artifacts/figures/
+!artifacts/figures/**
+!artifacts/tables/
+!artifacts/tables/**
+!artifacts/scripts/
+!artifacts/scripts/**
+yolo/runs/
+yolo/predictions/
+sam2/dataset/
+sam2/checkpoints/
+sam2/predictions/
 web/assets/cache/*.json
+
+# Model weights
+*.pt
+
+# Logs
 *.log
 nohup.out

@@ -34,7 +34,7 @@ EchoDVT 是一个基于超声视频的深静脉血栓辅助诊断项目，主线
 统一模型元信息位于：
 
 ```text
-results/unified_model/rf_unified.json
+artifacts/unified_model/rf_unified.json
 ```
 
 当前记录的关键指标为：
@@ -47,7 +47,11 @@ results/unified_model/rf_unified.json
 EchoDVT/
 ├── README.md
 ├── classify_dvt.py
-├── results/
+├── artifacts/
+│   ├── figures/
+│   ├── tables/
+│   ├── scripts/
+│   ├── e2e_classify_v3/
 │   └── unified_model/
 ├── web/
 │   ├── app.py

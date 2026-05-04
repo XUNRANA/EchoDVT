@@ -529,7 +529,7 @@ def run_ml_classifiers(X, y, feature_names):
 
 # ─────────────────────── 统一模型 ───────────────────────
 
-UNIFIED_MODEL_DIR = _REPO_ROOT / "results" / "unified_model"
+UNIFIED_MODEL_DIR = _REPO_ROOT / "artifacts" / "unified_model"
 UNIFIED_MODEL_PATH = UNIFIED_MODEL_DIR / "rf_unified.pkl"
 
 # 统一模型参数（经过 val+train 联合调参确定）
@@ -857,7 +857,7 @@ def main():
         help="数据集根目录（仅用于旧式标签加载）"
     )
     parser.add_argument(
-        "--output-dir", default="results/e2e_classify",
+        "--output-dir", default="artifacts/e2e_classify",
         help="输出目录"
     )
     parser.add_argument(
@@ -1312,7 +1312,7 @@ if __name__ == "__main__":
     使用方式
 
     # 端到端模式（默认）：推理 + 分类
-    python classify_dvt.py --output-dir results/e2e_classify/
+    python classify_dvt.py --output-dir artifacts/e2e_classify/
 
     # 指定 LoRA 权重和参数
     python classify_dvt.py \
@@ -1321,7 +1321,7 @@ if __name__ == "__main__":
 
     # 预计算 mask 模式（向后兼容）
     python classify_dvt.py \
-      --pred-dir results/lora_r8_mfp15/ \
+      --pred-dir artifacts/lora_r8_mfp15/ \
       --label-file /path/to/labels.csv
 
     # 手动指定 VCR 阈值

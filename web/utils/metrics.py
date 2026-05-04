@@ -10,7 +10,7 @@ import numpy as np
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-UNIFIED_MODEL_META = PROJECT_ROOT / "results" / "unified_model" / "rf_unified.json"
+UNIFIED_MODEL_META = PROJECT_ROOT / "artifacts" / "unified_model" / "rf_unified.json"
 DEFAULT_UNIFIED_THRESHOLD = 0.05
 
 
